@@ -13,17 +13,22 @@ logging.getLogger('urllib3').propagate = True
 
 
 class PlaneAPI:
-    def __init__(self, api_token, workspace_slug, base_url='https://api.plane.so/api/v1/', mode='debug'):
+    def __init__(self, api_token, workspace_slug, member_map, base_url='https://api.plane.so/', mode='debug'):
         self.mode = mode
         self.api_token = api_token
         self.workspace_slug = workspace_slug
+        self.member_map = member_map
         self.base_url = base_url
+        self.base_api_url = base_url + 'api/v1/'
         self.headers = {'X-API-Key': self.api_token}
 
     def get_all_projects(self):
-        url = f'{self.base_url}workspaces/{self.workspace_slug}/projects/'
+        logging.log(logging.INFO, "Getting all projects")
+        url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/'
         response = requests.get(url, headers=self.headers)
         if response.status_code == 200:
+            if self.mode == 'debug':
+                print(json.dumps(response.text, indent=4, ensure_ascii=False))
             projects = response.json()
             return [self.map_project(project) for project in projects.get("results", [])]
         else:
@@ -31,7 +36,7 @@ class PlaneAPI:
             return None
 
     def get_project(self, project_id):
-        url = f'{self.base_url}workspaces/{self.workspace_slug}/projects/{project_id}/'
+        url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/'
         response = requests.get(url, headers=self.headers)
         if response.status_code == 200:
             project = response.json()
@@ -41,7 +46,7 @@ class PlaneAPI:
             return None
 
     def get_project_tasks(self, project_id):
-        url = f'{self.base_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/'
+        url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/'
         response = requests.get(url, headers=self.headers)
         if response.status_code == 200:
             return response.json()
@@ -50,7 +55,7 @@ class PlaneAPI:
             return None
 
     def get_task_status_ids(self, project_id):
-        url = f'{self.base_url}workspaces/{self.workspace_slug}/projects/{project_id}/states/'
+        url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/states/'
         response = requests.get(url, headers=self.headers)
         if response.status_code == 200:
             return response.json()
@@ -109,17 +114,18 @@ class PlaneAPI:
         }
 
         if self.mode == 'debug':
-            print(json.dumps(result, indent=4, ensure_ascii=False))
+            logging.log(logging.INFO, json.dumps(result, indent=4, ensure_ascii=False))
 
         return result
 
-    def generate_report_for_project(self, project_id, categorized_tasks):
+    def generate_report_for_project(self, project_id, project_details, categorized_tasks):
         """
         Generate a formatted report for tasks categorized by statuses ('Todo', 'In Progress', 'In Review')
         for a specific project, with links to issues and users for Telegram bot output.
 
         Args:
             categorized_tasks (dict): tasks categorized by statuses.
+            project_details (dict): details about the project.
             project_id (str): The ID of the project to process.
 
         Returns:
@@ -130,12 +136,8 @@ class PlaneAPI:
             return f"No tasks found or failed to generate report for project ID: {project_id}"
 
         # Define the base URL for links
-        project_base_url = f"{self.base_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/"
-        report = []
-
-        # Fetch project name
-        project_details = self.get_project(project_id)
-        report.append(f"*Project: {project_details['name']}*\n")
+        project_base_url = f"{self.base_url}{self.workspace_slug}/projects/{project_id}/issues/"
+        report = [f"📍*Project: {project_details['name']}*\n"]
 
         # Generate report for each status
         for status, tasks in categorized_tasks.items():
@@ -146,8 +148,13 @@ class PlaneAPI:
 
             for task in tasks:
                 task_link = f"{project_base_url}{task['id']}"
+
+                unique_assignees = set(task.get("assignees", []))
+
                 assignees = ", ".join(
-                    [f"[User](https://example.com/users/{user_id})" for user_id in task.get("assignees", [])])
+                    [self.member_map.get(user_id, f"[Unknown User]({user_id})") for user_id in unique_assignees]
+                )
+
                 report.append(
                     f"• [{task['name']}]({task_link})\n"
                     f"  └ Assigned to: {assignees if assignees else '_Unassigned_'}"
@@ -159,21 +166,30 @@ class PlaneAPI:
 
         return "\n".join(report)
 
+    def create_issue(self, project_id, issue_data):
+        url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/'
+        response = requests.post(url, headers={**self.headers, "Content-Type": "application/json"}, data=json.dumps(issue_data))
+        if response.status_code == 201:
+            logging.info(f"Issue created successfully in project {project_id}.")
+            return response.json()
+        else:
+            logging.error(f"Error creating issue in project {project_id}: {response.status_code}, {response.text}")
+            return None
+
+    @staticmethod
+    def map_project_members(project_details):
+        return {
+            member["member_id"]: f"{member['member__display_name']}"
+            for member in project_details.get("members", [])
+        }
+
     @staticmethod
     def map_project(project):
-        """
-        Map only the required fields from a project object.
-
-        Args:
-            project (dict): The project object.
-
-        Returns:
-            dict: A dictionary containing only the required fields.
-        """
         return {
             "id": project.get("id"),
             "name": project.get("name"),
             "identifier": project.get("identifier"),
             "project_lead": project.get("project_lead"),
             "default_state": project.get("default_state"),
+            "members": project.get("members")
         }

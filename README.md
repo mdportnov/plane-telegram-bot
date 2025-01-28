@@ -13,3 +13,6 @@ This project provides a Python-based integration for managing and reporting task
 - Python 3.9+
 - requests library for API calls
 - Plane.so API key
+
+### Known issues:
+https://github.com/makeplane/plane/issues/5061 - that's why members.json should be used for mapping

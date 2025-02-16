@@ -74,9 +74,6 @@ jobs:
             docker rm ${{ github.event.inputs.app_name }} || true
             docker run -d \
               --name ${{ github.event.inputs.app_name }} \
-              -e ENV_VAR1=${{ secrets.ENV_VAR1 }} \
-              -e ENV_VAR2=${{ secrets.ENV_VAR2 }} \
-              -e ENV_VAR3=${{ secrets.ENV_VAR3 }} \
               -p 8888:8888 \
               ghcr.io/${{ github.repository }}/${{ github.event.inputs.app_name }}:latest
   

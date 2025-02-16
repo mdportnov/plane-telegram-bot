@@ -15,4 +15,5 @@ This project provides a Python-based integration for managing and reporting task
 - Plane.so API key
 
 ### Known issues:
-https://github.com/makeplane/plane/issues/5061 - that's why members.json should be used for mapping
+1. https://github.com/makeplane/plane/issues/5061 - that's why members.json should be used for mapping
+2. in Create Issue API - not working creating assignees

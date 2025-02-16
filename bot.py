@@ -6,10 +6,11 @@ from telegram.ext import CallbackContext, Updater, Application, CommandHandler
 
 
 class PlaneNotifierBot:
-    def __init__(self, bot_token, projects_map, plane_api, interval, members_map):
+    def __init__(self, bot_token, plane_api, interval, members_map, projects_map):
         self.bot_token = bot_token
-        self.project_mapping = projects_map
         self.members_map = members_map
+        self.project_to_chat_map = projects_map
+        self.chat_to_project_map = {item["chat_id"]: item["project_id"] for item in projects_map}
         self.plane_api = plane_api
         self.interval = interval
         self.bot = Bot(token=self.bot_token)
@@ -17,7 +18,7 @@ class PlaneNotifierBot:
         self.application.add_handler(CommandHandler('newtask', self.new_task))
 
     async def send_report_to_chats(self):
-        for project_id, chat_id in self.project_mapping.items():
+        for project_id, chat_id in self.project_to_chat_map.items():
             logging.info(f"Processing project ID: {project_id} for chat ID: {chat_id}")
 
             # Fetch project details
@@ -56,36 +57,27 @@ class PlaneNotifierBot:
             args = [arg.strip().strip("'\"") for arg in args]
 
             # Validate minimum arguments
-            if len(args) < 5:
+            if len(args) < 4:
                 await update.message.reply_text(
-                    "Invalid format. Use: /newtask <project_id>, <task_name>, <description>, <start_date>, <target_date>, [<assignees>]")
+                    "Invalid format. Use: /newtask <project_id>, <task_name>, <description>, <start_date>, <target_date>")
                 return
 
-            project_id = args[0]
+            project_id = self.chat_to_project_map[update.message.chat_id]
             task_name = args[1]
             description = args[2]
             start_date = args[3] if args[3].lower() != 'null' else None
             target_date = args[4] if args[4].lower() != 'null' else None
-            assignees = [assignee.strip() for assignee in args[5:]] if len(args) > 5 else []
-
-            # Map assignees from Telegram IDs to Plane member IDs
-            mapped_assignees = [
-                member["member_id"]
-                for member in self.plane_api.member_map
-                if "telegram_id" in member and member["telegram_id"] in assignees
-            ]
 
             # Debug log for parsed data
             print(
-                f"Parsed Task: Project ID: {project_id}, Task Name: {task_name}, Description: {description}, Start Date: {start_date}, Target Date: {target_date}, Assignees: {assignees}")
+                f"Parsed Task: Chat ID: {update.message.chat_id}, Project ID: {project_id}, Task Name: {task_name}, Description: {description}, Start Date: {start_date}, Target Date: {target_date}")
 
             # Prepare issue data
             issue_data = {
                 "name": task_name,
                 "description_html": f"<body>{description}</body>",
                 "start_date": start_date,
-                "target_date": target_date,
-                "assignees": mapped_assignees
+                "target_date": target_date
             }
 
             # Create the issue via Plane API

@@ -19,7 +19,7 @@ if __name__ == '__main__':
     members_map = load_members_from_file(members_file_path)
     projects_map = load_projects_from_file(projects_file_path)
     plane_api = PlaneAPI(api_token, workspace_slug, members_map, base_url, mode)
-    bot = PlaneNotifierBot(bot_token, projects_map, plane_api, interval, members_map)
+    bot = PlaneNotifierBot(bot_token, plane_api, interval, members_map, projects_map)
 
     projects_data = plane_api.get_all_projects()
     # get_all_chats(bot_token)

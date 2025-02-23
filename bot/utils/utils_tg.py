@@ -2,8 +2,17 @@ import json
 import logging
 
 import requests
+from telegram import Update
 
 
+def get_mentions_list(update: Update):
+    message = update.message
+    mentioned_users = set()
+    for entity in message.entities:
+        if entity.type == "mention":
+            mentioned_username = message.text[entity.offset + 1:entity.offset + entity.length]
+            mentioned_users.add(mentioned_username)
+    return list(mentioned_users)
 def get_all_chats(token):
     url = f"https://api.telegram.org/bot{token}/getUpdates"
     response = requests.get(url)

@@ -13,11 +13,12 @@ logging.getLogger('urllib3').propagate = True
 
 
 class PlaneAPI:
-    def __init__(self, api_token, workspace_slug, member_map, base_url='https://api.plane.so/', mode='debug'):
+    def __init__(self, api_token, workspace_slug,config, member_map, base_url='https://api.plane.so/', mode='debug'):
         self.mode = mode
         self.api_token = api_token
         self.workspace_slug = workspace_slug
         self.member_map = member_map
+        self.config = config
         self.base_url = base_url
         self.base_api_url = base_url + 'api/v1/'
         self.headers = {'X-API-Key': self.api_token}
@@ -53,14 +54,24 @@ class PlaneAPI:
         else:
             print(f"Error fetching tasks for project {project_id}: {response.status_code}")
             return None
-
-    def get_task_status_ids(self, project_id):
-        url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/states/'
+    def get_task_by_uuid(self, project_id,issue_id):
+        url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/{issue_id}'
         response = requests.get(url, headers=self.headers)
         if response.status_code == 200:
+            logging.info(f"Successfully received issue{issue_id}.")
             return response.json()
         else:
-            print(f"Error fetching task statuses for project {project_id}: {response.status_code}")
+            logging.error(f"Error fetching task from project {project_id}: {response.status_code}")
+            return None
+    def get_task_states_ids(self, project_id):
+        url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/states/'
+        response = requests.get(url, headers=self.headers)
+        print(response)
+        if response.status_code == 200:
+            logging.info(f"Successfully received states{project_id}.")
+            return response.json()
+        else:
+            logging.error(f"Error fetching task statuses for project {project_id}: {response.status_code}")
             return None
 
     def get_tasks_by_status_for_project(self, project_id):
@@ -73,48 +84,28 @@ class PlaneAPI:
         Returns:
             dict: A dictionary containing tasks categorized by statuses.
         """
-        # Fetch task statuses for the project
-        task_statuses = self.get_task_status_ids(project_id)
-        if not task_statuses:
+        states_list = self.config["report_states_list"]
+        #Fetch project states
+        project_states_map =  self.map_states_by_ids(project_id)
+        if not project_states_map:
             print(f"No statuses found for project ID: {project_id}")
             return
+        inv_project_states_map = { v : k  for k,v in project_states_map.items() }
 
-        if self.mode == 'debug':
-            print(f"Task statuses: {task_statuses}")
-
-        # Find IDs for required statuses
-        todo_id = next((status["id"] for status in task_statuses["results"] if status["name"].lower() == "todo"), None)
-        in_progress_id = next(
-            (status["id"] for status in task_statuses["results"] if status["name"].lower() == "in progress"),
-            None)
-        in_review_id = next(
-            (status["id"] for status in task_statuses["results"] if status["name"].lower() == "in review"), None)
-
-        if not any([todo_id, in_progress_id, in_review_id]):
-            print(f"No relevant statuses (Todo, In Progress, In Review) found for project ID: {project_id}")
+        # Task states filter
+        report_states_map = {inv_project_states_map[item] : item for item in inv_project_states_map.keys() if item in states_list }
+        if not report_states_map:
+            print(f"No relevant statuses found for project ID: {project_id}")
             return
-
         # Fetch all tasks for the project
         tasks_data = self.get_project_tasks(project_id)
         if not tasks_data or "results" not in tasks_data:
             print(f"No tasks found for project ID: {project_id}")
             return
-
-        # Filter tasks by status
-        tasks = tasks_data["results"]
-        todo_tasks = [task for task in tasks if task["state"] == todo_id]
-        in_progress_tasks = [task for task in tasks if task["state"] == in_progress_id]
-        in_review_tasks = [task for task in tasks if task["state"] == in_review_id]
-
-        # Organize tasks into categories
+        # Construct categorized tasks
         result = {
-            "Todo": todo_tasks,
-            "In Progress": in_progress_tasks,
-            "In Review": in_review_tasks,
+            state_name : [task for task in tasks_data["results"] if task["state"] == state_id] for state_id ,state_name in report_states_map.items()
         }
-
-        if self.mode == 'debug':
-            logging.log(logging.INFO, json.dumps(result, indent=4, ensure_ascii=False))
 
         return result
 
@@ -138,7 +129,6 @@ class PlaneAPI:
         # Define the base URL for links
         project_base_url = f"{self.base_url}{self.workspace_slug}/projects/{project_id}/issues/"
         report = [f"📍*Project: {project_details['name']}*\n"]
-
         # Generate report for each status
         for status, tasks in categorized_tasks.items():
             report.append(f"*{status}*:")
@@ -152,9 +142,8 @@ class PlaneAPI:
                 unique_assignees = set(task.get("assignees", []))
 
                 assignees = ", ".join(
-                    [self.member_map.get(user_id, f"[Unknown User]({user_id})") for user_id in unique_assignees]
+                    ['@'+self.member_map.get(user_id) for user_id in unique_assignees]
                 )
-
                 report.append(
                     f"• [{task['name']}]({task_link})\n"
                     f"  └ Assigned to: {assignees if assignees else '_Unassigned_'}"
@@ -175,6 +164,24 @@ class PlaneAPI:
         else:
             logging.error(f"Error creating issue in project {project_id}: {response.status_code}, {response.text}")
             return None
+
+    def update_issue(self,project_id,issue_id, update_issue_data):
+        url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/{issue_id}/'
+        response = requests.patch(url, headers={**self.headers, "Content-Type": "application/json"}, data=json.dumps(update_issue_data))
+        if response.status_code == 200:
+            logging.info(f"Issue update successfully in project {project_id}.")
+            logging.info(response.text)
+            return response.json()
+        else:
+            logging.error(f"Error updating issue in project {project_id}: {response.status_code}, {response.text}")
+            return None
+
+    def map_states_by_ids(self,project_id):
+        states = self.get_task_states_ids(project_id)
+        mapped_statutes = {
+            data["id"]: data["name"] for data in states["results"]
+        }
+        return mapped_statutes
 
     @staticmethod
     def map_project_members(project_details):

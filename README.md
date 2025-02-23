@@ -29,6 +29,7 @@ Telegram.
     - WORKSPACE_SLUG - workspace sub-path in url
     - BOT_TOKEN - telegram bot api token
     - MODE - set `debug` for logging
+    - BOT_NAME  - telegram bot name
 2. Create file mappers (unfortunately plane.so API can't provide all necessary info in appropriate way) in the next
    structure:
     - members.json
@@ -54,6 +55,15 @@ Telegram.
          }
        ]
        ```
-
-3. Run `pip install -r requirements.txt`
-4. Use PyCharm Run Configuration or just `python main.py`
+3. Create `config.yaml` file in root folder, with the next structure:
+   ```yaml
+   report_states_list:
+     - Todo
+     - In Progress
+     - In Review
+     - [ state to report name ]
+   cron_expression: "*/2 * * * *" 
+   cron_start_date: "2024-02-02 10:00" 
+   ```
+4. Run `pip install -r requirements.txt`
+5. Use PyCharm Run Configuration or just `python main.py`

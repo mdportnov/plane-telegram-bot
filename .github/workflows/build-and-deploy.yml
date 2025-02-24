@@ -68,9 +68,11 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
+          username: ${{ secrets.SSH_USERANME }}
           key: id_rsa
-          proxy_jump: ${{ secrets.SSH_PROXY_JUMP }}
+          proxy_host: jump-ssh.digital.mephi.ru    # ${{ secrets.SSH_PROXY_HOST }}
+          proxy_port: 2236    # ${{ secrets.SSH_PROXY_PORT }}
+          proxy_username: ubuntu    # ${{ secrets.SSH_PROXY_USERNAME }}
           script: |
             docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
             docker pull ghcr.io/${{ github.repository }}/${{ github.event.inputs.app_name }}:latest
@@ -80,4 +82,4 @@ jobs:
               --name ${{ github.event.inputs.app_name }} \
               -p 8888:8888 \
               ghcr.io/${{ github.repository }}/${{ github.event.inputs.app_name }}:latest
-  
+

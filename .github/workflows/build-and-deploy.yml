@@ -67,8 +67,8 @@ jobs:
       - name: "Deploy to Virtual Machine via Jump Host"
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERANME }}
+          host: 172.18.5.39    # ${{ secrets.SSH_HOST }}
+          username: ubuntu     # ${{ secrets.SSH_USERNAME }}
           key: id_rsa
           proxy_host: jump-ssh.digital.mephi.ru    # ${{ secrets.SSH_PROXY_HOST }}
           proxy_port: 2236    # ${{ secrets.SSH_PROXY_PORT }}

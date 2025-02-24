@@ -63,6 +63,7 @@ jobs:
         run: |
           echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 -d > id_rsa
           chmod 600 id_rsa
+          touch .ssh/config
           echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
 
       - name: "Deploy to Virtual Machine via Jump Host"

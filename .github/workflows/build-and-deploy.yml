@@ -66,8 +66,7 @@ jobs:
 
       - name: "Deploy to Virtual Machine via Jump Host"
         run: |
-          ssh -i id_rsa -J ubuntu@jump-ssh.digital.mephi.ru:2236 ubuntu@172.18.5.39 \
-            -o StrictHostKeyChecking=no \
+          ssh -i id_rsa -o StrictHostKeyChecking=no -J ubuntu@ssh-jump.digital.mephi.ru:2236 ubuntu@172.18.5.39 \
             "docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} && \
             docker pull ghcr.io/${{ github.repository }}/${{ github.event.inputs.app_name }}:latest && \
             docker stop ${{ github.event.inputs.app_name }} || true && \

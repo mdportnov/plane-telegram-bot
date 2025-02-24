@@ -61,13 +61,16 @@ jobs:
     steps:
       - name: "Decode SSH private key"
         run: |
-          eval $(ssh-agent -s) && ssh-add <(echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 -d)
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 -d > id_rsa
+          chmod 600 id_rsa
+          eval $(ssh-agent -s)
+          ssh-add id_rsa
           mkdir -p ~/.ssh
           echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
 
       - name: "Deploy to Virtual Machine via Jump Host"
         run: |
-          ssh -J ubuntu@jump-ssh.digital.mephi.ru:2236 ubuntu@172.18.5.39 \
+          ssh -i id_rsa -J ubuntu@jump-ssh.digital.mephi.ru:2236 ubuntu@172.18.5.39 \
             "docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} && \
             docker pull ghcr.io/${{ github.repository }}/${{ github.event.inputs.app_name }}:latest && \
             docker stop ${{ github.event.inputs.app_name }} || true && \

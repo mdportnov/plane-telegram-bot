@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import datetime
 import yaml
@@ -22,7 +23,6 @@ def load_members_from_file(file_path):
 def load_projects_from_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         projects = json.load(file)
-        print({project["project_id"]: f"{project['chat_id']}" for project in projects})
     return {project["project_id"]: f"{project['chat_id']}" for project in projects}
 
 def escape_markdown_v2(text: str,chars = "\\_*[\]()~`>#+\-=\|{}.!") -> str:

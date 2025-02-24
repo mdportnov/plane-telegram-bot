@@ -54,9 +54,9 @@ class PlaneNotifierBot:
             try:
                 # Send report to the chat
                 await self.bot.send_message(chat_id=chat_id, text=report, parse_mode="Markdown")
-                print(f"Successfully sent report for project ID: {project_id} to chat ID: {chat_id}.")
+                logging.info(f"Successfully sent report for project ID: {project_id} to chat ID: {chat_id}.")
             except Exception as e:
-                print(f"Failed to send report to chat ID: {chat_id} for project ID: {project_id}. Error: {e}")
+                logging.error(f"Failed to send report to chat ID: {chat_id} for project ID: {project_id}. Error: {e}")
 
     async def get_states_list(self,update: Update,context : CallbackContext):
         try:
@@ -177,7 +177,6 @@ class PlaneNotifierBot:
             updated_issue = self.plane_api.update_issue(project_id,task_id,new_issue_data)
             if updated_issue:
                 replay = self.construct_update_replay(updated_issue=updated_issue,old_issue=old_issue,project_id=project_id)
-                print(replay)
                 await update.message.reply_text(replay,parse_mode="MarkdownV2")
             else:
                 await update.message.reply_text(fail_emoji + "Failed to update the task. Please try again later.")
@@ -311,7 +310,7 @@ class PlaneNotifierBot:
             await self.application.updater.stop()
             await self.application.stop()
             await self.application.shutdown()
-            logging.info("PlaneNotifierBot stopped by user.")
+            logging.info("PlaneNotifierBot stopped.")
 
     async def periodic_task(self):
         logging.info("Starting periodic report generation...")
@@ -401,13 +400,3 @@ class PlaneNotifierBot:
         for assignee_id in new_issue["assignees"]:
             replay += f"  {self.members_map.get(assignee_id)}\n"
         return replay
-
-
-
-
-
-
-
-
-
-

@@ -64,6 +64,8 @@ Telegram.
      - [ state to report name ]
    cron_expression: "*/2 * * * *" 
    cron_start_date: "2024-02-02 10:00" 
+   projects_file_path : "projects.json"
+   members_file_path :  "members.json"
    ```
 4. Run `pip install -r requirements.txt`
 5. Use PyCharm Run Configuration or just `python main.py`

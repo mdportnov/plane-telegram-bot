@@ -16,6 +16,7 @@ def get_mentions_list(update: Update):
 def get_all_chats(token):
     url = f"https://api.telegram.org/bot{token}/getUpdates"
     response = requests.get(url)
+    logging.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
     if response.status_code == 200:
         updates = response.json()
         logging.info(f"Received response from Telegram API: {json.dumps(updates, indent=4, ensure_ascii=False)}")

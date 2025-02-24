@@ -60,13 +60,10 @@ class PlaneNotifierBot:
 
     async def get_states_list(self,update: Update,context : CallbackContext):
         try:
-            command_text = update.message.text
             project_id = self.chat_to_project_map[str(update.message.chat_id)]
             states = self.plane_api.get_task_states_ids(project_id)
-
             self.plane_api.get_tasks_by_status_for_project(project_id)
-
-            logging.info(f"states received :{states}")
+            logging.debug(f"states received :{states}")
             if states:
                 await update.message.reply_text(
                     "\n".join(self.plane_api.map_states_by_ids(project_id).values())
@@ -147,7 +144,6 @@ class PlaneNotifierBot:
 
              # Get old version of task
             old_issue = self.plane_api.get_task_by_uuid(project_id,task_id)
-            logging.info(old_issue)
             if old_issue is None:
                 await update.message.reply_text(fail_emoji + "Issue UUID invalid.Try again")
                 return
@@ -284,7 +280,7 @@ class PlaneNotifierBot:
         try:
             scheduler = AsyncIOScheduler()
             mapped_cron = self.map_cron_expression(self.cron_expression,self.cron_start_date)
-            print(mapped_cron)
+            logging.debug(mapped_cron)
             scheduler.add_job(
                 self.periodic_task,
                 CronTrigger(
@@ -317,11 +313,9 @@ class PlaneNotifierBot:
         await self.send_report_to_chats()
 
     def map_cron_expression(self,cron_expression,cron_start_date):
-        print(datetime.datetime.strptime(cron_start_date,"%Y-%m-%d %H:%M"))
         start_date = datetime.datetime.strptime(cron_start_date,"%Y-%m-%d %H:%M")
         cron = croniter(cron_expression)
         minute, hour, day_of_month, month, day_of_week  = cron.expanded
-        print(cron.expanded)
         return {
             "minute" : ",".join(str(x) for x in minute),
             "hour" : ",".join(str(x) for x in hour),
@@ -333,7 +327,6 @@ class PlaneNotifierBot:
     def construct_update_replay(self,updated_issue,old_issue,project_id):
         md_v2 = escape_markdown_v2
         task_link = f"{self.plane_api.base_url}{self.plane_api.workspace_slug}/projects/{project_id}/issues/{updated_issue['id']}"
-
         replay = (
                 success_emoji +
                 f"Task updated successfully:\n[{md_v2(updated_issue['name'])}]({md_v2(task_link)})\n"

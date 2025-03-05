@@ -3,14 +3,9 @@ import logging
 
 import requests
 
+from bot.utils.logger_config import logger
+from bot.utils.utils import escape_markdown_v2
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Configure requests to use urllib3's logging
-logging.getLogger('urllib3').setLevel(logging.INFO)
-logging.getLogger('urllib3').propagate = True
 
 class PlaneAPI:
     def __init__(self, api_token, workspace_slug,config, member_map, base_url='https://api.plane.so/', mode='debug'):
@@ -24,56 +19,58 @@ class PlaneAPI:
         self.headers = {'X-API-Key': self.api_token}
 
     def get_all_projects(self):
-        logging.info("Getting all projects")
+        logger.info("Getting all projects")
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/'
         response = requests.get(url, headers=self.headers)
-        logging.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
+        logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
         if response.status_code == 200:
             projects = response.json()
             return [self.map_project(project) for project in projects.get("results", [])]
         else:
-            logging.error(f"Error fetching projects: {response.status_code}, {response.text}")
+            logger.error(f"Error fetching projects: {response.status_code}, {response.text}")
             return None
 
     def get_project(self, project_id):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/'
         response = requests.get(url, headers=self.headers)
-        logging.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
+        logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
         if response.status_code == 200:
+            logger.info(f"Successfully received project{project_id}.")
             project = response.json()
             return self.map_project(project)
         else:
-            logging.error(f"Error fetching project: {response.status_code}, {response.text}")
+            logger.error(f"Error fetching project: {response.status_code}, {response.text}")
             return None
 
     def get_project_tasks(self, project_id):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/'
         response = requests.get(url, headers=self.headers)
-        logging.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
+        logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
         if response.status_code == 200:
+            logger.info(f"Successfully received tasks for project{project_id}.")
             return response.json()
         else:
-            logging.error(f"Error fetching tasks for project {project_id}: {response.status_code}")
+            logger.error(f"Error fetching tasks for project {project_id}: {response.status_code}")
             return None
     def get_task_by_uuid(self, project_id,issue_id):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/{issue_id}'
         response = requests.get(url, headers=self.headers)
-        logging.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
+        logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
         if response.status_code == 200:
-            logging.info(f"Successfully received issue{issue_id}.")
+            logger.info(f"Successfully received issue{issue_id}.")
             return response.json()
         else:
-            logging.error(f"Error fetching task from project {project_id}: {response.status_code}")
+            logger.error(f"Error fetching task from project {project_id}: {response.status_code}")
             return None
     def get_task_states_ids(self, project_id):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/states/'
         response = requests.get(url, headers=self.headers)
-        logging.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
+        logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
         if response.status_code == 200:
-            logging.info(f"Successfully received states{project_id}.")
+            logger.info(f"Successfully received states{project_id}.")
             return response.json()
         else:
-            logging.error(f"Error fetching task statuses for project {project_id}: {response.status_code}")
+            logger.error(f"Error fetching task statuses for project {project_id}: {response.status_code}")
             return None
 
     def get_tasks_by_status_for_project(self, project_id):
@@ -90,19 +87,19 @@ class PlaneAPI:
         #Fetch project states
         project_states_map =  self.map_states_by_ids(project_id)
         if not project_states_map:
-            logging.warning(f"No statuses found for project ID: {project_id}")
+            logger.warning(f"No statuses found for project ID: {project_id}")
             return
         inv_project_states_map = { v : k  for k,v in project_states_map.items() }
 
         # Task states filter
         report_states_map = {inv_project_states_map[item] : item for item in inv_project_states_map.keys() if item in states_list }
         if not report_states_map:
-            logging.warning(f"No relevant statuses found for project ID: {project_id}")
+            logger.warning(f"No relevant statuses found for project ID: {project_id}")
             return
         # Fetch all tasks for the project
         tasks_data = self.get_project_tasks(project_id)
         if not tasks_data or "results" not in tasks_data:
-            logging.warning(f"No tasks found for project ID: {project_id}")
+            logger.warning(f"No tasks found for project ID: {project_id}")
             return
         # Construct categorized tasks
         result = {
@@ -124,55 +121,56 @@ class PlaneAPI:
         Returns:
             str: A formatted report string for Telegram.
         """
+        md_v2 = escape_markdown_v2
         # Fetch tasks by status
         if not categorized_tasks:
             return f"No tasks found or failed to generate report for project ID: {project_id}"
 
         # Define the base URL for links
         project_base_url = f"{self.base_url}{self.workspace_slug}/projects/{project_id}/issues/"
-        report = [f"📍*Project: {project_details['name']}*\n"]
+        report = [f"📍*Project: {md_v2(project_details['name'])}*\n"]
         # Generate report for each status
         for status, tasks in categorized_tasks.items():
-            report.append(f"*{status}*:")
+            report.append(f"*{md_v2(status)}*:")
             if not tasks:
                 report.append("_No tasks_\n")
                 continue
 
             for task in tasks:
-                task_link = f"{project_base_url}{task['id']}"
+                task_link = f"{project_base_url}{(task['id'])}"
                 unique_assignees = set(task.get("assignees", []))
                 assignees = ", ".join(
                     ['@'+self.member_map.get(user_id) for user_id in unique_assignees]
                 )
                 report.append(
-                    f"• [{task['name']}]({task_link})\n"
-                    f"  └ Assigned to: {assignees if assignees else '_Unassigned_'}"
+                    f"• [{md_v2(task['name'])}]({md_v2(task_link)})\n"
+                    f"  └ Assigned to: {md_v2(assignees) if assignees else '_Unassigned_'}"
                 )
             report.append("")
 
-        logging.debug("\n".join(report))
+        logger.debug("\n".join(report))
         return "\n".join(report)
 
     def create_issue(self, project_id, issue_data):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/'
         response = requests.post(url, headers={**self.headers, "Content-Type": "application/json"}, data=json.dumps(issue_data))
-        logging.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
+        logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
         if response.status_code == 201:
-            logging.info(f"Issue created successfully in project {project_id}.")
+            logger.info(f"Issue created successfully in project {project_id}.")
             return response.json()
         else:
-            logging.error(f"Error creating issue in project {project_id}: {response.status_code}, {response.text}")
+            logger.error(f"Error creating issue in project {project_id}: {response.status_code}, {response.text}")
             return None
 
     def update_issue(self,project_id,issue_id, update_issue_data):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/{issue_id}/'
         response = requests.patch(url, headers={**self.headers, "Content-Type": "application/json"}, data=json.dumps(update_issue_data))
-        logging.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
+        logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
         if response.status_code == 200:
-            logging.info(f"Issue update successfully in project {project_id}.")
+            logger.info(f"Issue update successfully in project {project_id}.")
             return response.json()
         else:
-            logging.error(f"Error updating issue in project {project_id}: {response.status_code}, {response.text}")
+            logger.error(f"Error updating issue in project {project_id}: {response.status_code}, {response.text}")
             return None
 
     def map_states_by_ids(self,project_id):

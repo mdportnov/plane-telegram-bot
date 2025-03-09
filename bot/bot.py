@@ -10,6 +10,7 @@ from croniter import croniter
 from telegram import Bot, Update
 from telegram.ext import CallbackContext, Application, CommandHandler
 
+from bot.utils.logger_config import logger
 from bot.utils.utils import validate_dates, escape_markdown_v2, fail_emoji, index_to_priority, success_emoji
 from bot.utils.utils_tg import get_mentions_list
 
@@ -34,36 +35,38 @@ class PlaneNotifierBot:
         self.application.add_handler(CommandHandler('getstates', self.get_states_list))
     async def send_report_to_chats(self):
         for project_id, chat_id in self.project_to_chat_map.items():
-            logging.info(f"Processing project ID: {project_id} for chat ID: {chat_id}")
+            logger.info(f"Processing project ID: {project_id} for chat ID: {chat_id}")
 
             # Fetch project details
             project_details = self.plane_api.get_project(project_id)
             if not project_details:
-                logging.warning(f"No details found for project ID: {project_id}. Skipping.")
+                logger.warning(f"No details found for project ID: {project_id}. Skipping.")
                 continue
 
             # Fetch tasks categorized by status
             categorized_tasks = self.plane_api.get_tasks_by_status_for_project(project_id)
             if not categorized_tasks:
-                logging.warning(f"No categorized tasks found for project ID: {project_id}. Skipping.")
-                continue
-
+                logger.warning(f"No categorized tasks found for project ID: {project_id}. Skipping.")
+                return
+            if all( (value is None or value == list()) for value in categorized_tasks.values()):
+                logger.warning(f"No categorized tasks found for project ID: {project_id}. Skipping.")
+                return
             # Generate report for the project
             report = self.plane_api.generate_report_for_project(project_id, project_details, categorized_tasks)
-
+            logger.debug(report)
             try:
                 # Send report to the chat
-                await self.bot.send_message(chat_id=chat_id, text=report, parse_mode="Markdown")
-                logging.info(f"Successfully sent report for project ID: {project_id} to chat ID: {chat_id}.")
+                await self.bot.send_message(chat_id=chat_id, text=report, parse_mode="MarkdownV2")
+                logger.info(f"Successfully sent report for project ID: {project_id} to chat ID: {chat_id}.")
             except Exception as e:
-                logging.error(f"Failed to send report to chat ID: {chat_id} for project ID: {project_id}. Error: {e}")
+                logger.error(f"Failed to send report to chat ID: {chat_id} for project ID: {project_id}. Error: {e}")
 
     async def get_states_list(self,update: Update,context : CallbackContext):
         try:
             project_id = self.chat_to_project_map[str(update.message.chat_id)]
             states = self.plane_api.get_task_states_ids(project_id)
             self.plane_api.get_tasks_by_status_for_project(project_id)
-            logging.debug(f"states received :{states}")
+            logger.debug(f"states received :{states}")
             if states:
                 await update.message.reply_text(
                     "\n".join(self.plane_api.map_states_by_ids(project_id).values())
@@ -71,7 +74,7 @@ class PlaneNotifierBot:
             else:
                 await update.message.reply_text("An error occurred while getting states. Please try again later.")
         except Exception as e:
-            logging.error(f"Error handling /getstates command: {e}, ${e.__cause__}")
+            logger.error(f"Error handling /getstates command: {e}, ${e.__cause__}")
             await update.message.reply_text(
                 "An error occurred while getting states, try again later")
         return
@@ -177,7 +180,7 @@ class PlaneNotifierBot:
             else:
                 await update.message.reply_text(fail_emoji + "Failed to update the task. Please try again later.")
         except Exception as e :
-            logging.error(f"Error handling /updatetask command: {e}, ${e.__cause__}")
+            logger.error(f"Error handling /updatetask command: {e}, ${e.__cause__}")
             await update.message.reply_text(
                 fail_emoji + "An error occurred while updating the task. Please check your input and try again.")
 
@@ -270,17 +273,16 @@ class PlaneNotifierBot:
             else:
                 await update.message.reply_text(fail_emoji + "Failed to create the task. Please try again later.")
         except Exception as e:
-            logging.error(f"Error handling /newtask command: {e}, ${e.__cause__}")
+            logger.error(f"Error handling /newtask command: {e}, ${e.__cause__}")
             await update.message.reply_text(
                 fail_emoji + "An error occurred while creating the task. Please check your input and try again.")
 
-
     async def run(self):
-        logging.info("Starting PlaneNotifierBot...")
+        logger.info("Starting PlaneNotifierBot...")
         try:
             scheduler = AsyncIOScheduler()
             mapped_cron = self.map_cron_expression(self.cron_expression,self.cron_start_date)
-            logging.debug(mapped_cron)
+            logger.debug(mapped_cron)
             scheduler.add_job(
                 self.periodic_task,
                 CronTrigger(
@@ -300,16 +302,16 @@ class PlaneNotifierBot:
             await self.stop_event.wait()
         except KeyboardInterrupt:
             self.stop_event.set()
-            logging.info("PlaneNotifierBot stopped by user.")
+            logger.info("PlaneNotifierBot stopped by user.")
         finally:
             self.stop_event.set()
             await self.application.updater.stop()
             await self.application.stop()
             await self.application.shutdown()
-            logging.info("PlaneNotifierBot stopped.")
+            logger.info("PlaneNotifierBot stopped.")
 
     async def periodic_task(self):
-        logging.info("Starting periodic report generation...")
+        logger.info("Starting periodic report generation...")
         await self.send_report_to_chats()
 
     def map_cron_expression(self,cron_expression,cron_start_date):

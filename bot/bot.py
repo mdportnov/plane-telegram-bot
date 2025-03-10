@@ -1,6 +1,5 @@
 import asyncio
 import datetime
-import logging
 import re
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -14,6 +13,7 @@ from bot.utils.logger_config import logger
 from bot.utils.utils import validate_dates, escape_markdown_v2, fail_emoji, index_to_priority, success_emoji
 from bot.utils.utils_tg import get_mentions_list
 
+
 class PlaneNotifierBot:
     def __init__(self, bot_token,bot_name, plane_api,config,members_map, projects_map):
         self.bot_token = bot_token
@@ -25,7 +25,8 @@ class PlaneNotifierBot:
 
         self.plane_api = plane_api
         self.cron_expression = config["cron_expression"]
-        self.cron_start_date = config["cron_start_date"]
+        self.timezone = config["cron_timezone"]
+
         self.bot = Bot(token=self.bot_token)
         self.application = Application.builder().token(bot_token).build()
         self.stop_event = asyncio.Event()
@@ -42,15 +43,14 @@ class PlaneNotifierBot:
             if not project_details:
                 logger.warning(f"No details found for project ID: {project_id}. Skipping.")
                 continue
-
             # Fetch tasks categorized by status
             categorized_tasks = self.plane_api.get_tasks_by_status_for_project(project_id)
             if not categorized_tasks:
                 logger.warning(f"No categorized tasks found for project ID: {project_id}. Skipping.")
-                return
+                continue
             if all( (value is None or value == list()) for value in categorized_tasks.values()):
                 logger.warning(f"No categorized tasks found for project ID: {project_id}. Skipping.")
-                return
+                continue
             # Generate report for the project
             report = self.plane_api.generate_report_for_project(project_id, project_details, categorized_tasks)
             logger.debug(report)
@@ -281,18 +281,13 @@ class PlaneNotifierBot:
         logger.info("Starting PlaneNotifierBot...")
         try:
             scheduler = AsyncIOScheduler()
-            mapped_cron = self.map_cron_expression(self.cron_expression,self.cron_start_date)
-            logger.debug(mapped_cron)
+            cronTrigger = CronTrigger.from_crontab(
+                self.cron_expression,
+                timezone=self.timezone
+            )
             scheduler.add_job(
                 self.periodic_task,
-                CronTrigger(
-                    minute = mapped_cron["minute"],
-                    hour=mapped_cron["hour"],
-                    day=mapped_cron["day_of_month"],
-                    month=mapped_cron["month"],
-                    day_of_week=mapped_cron["day_of_week"],
-                    start_date= mapped_cron["start_date"]
-                )
+                cronTrigger
             )
             scheduler.start()
 
@@ -314,7 +309,7 @@ class PlaneNotifierBot:
         logger.info("Starting periodic report generation...")
         await self.send_report_to_chats()
 
-    def map_cron_expression(self,cron_expression,cron_start_date):
+    def map_cron_expression(self,cron_expression,cron_start_date,timezone):
         start_date = datetime.datetime.strptime(cron_start_date,"%Y-%m-%d %H:%M")
         cron = croniter(cron_expression)
         minute, hour, day_of_month, month, day_of_week  = cron.expanded
@@ -324,7 +319,8 @@ class PlaneNotifierBot:
             "day_of_month" : ",".join(str(x) for x in day_of_month),
             "month" : ",".join(str(x) for x in month),
             "day_of_week" : ",".join(str(x) for x in day_of_week),
-            "start_date" : start_date
+            "start_date" : start_date,
+            "timezone" : timezone
         }
     def construct_update_replay(self,updated_issue,old_issue,project_id):
         md_v2 = escape_markdown_v2

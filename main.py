@@ -2,7 +2,6 @@ import asyncio
 import os
 
 import logging
-from logging import DEBUG
 
 from dotenv import load_dotenv
 

@@ -1,9 +1,6 @@
 import asyncio
 import datetime
-import logging
 import re
-from email.policy import default
-from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger

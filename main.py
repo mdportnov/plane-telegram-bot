@@ -2,7 +2,6 @@ import asyncio
 import os
 
 import logging
-from logging import DEBUG
 
 from dotenv import load_dotenv
 
@@ -20,7 +19,6 @@ if __name__ == '__main__':
     bot_token = os.getenv('BOT_TOKEN')
     bot_name = os.getenv('BOT_NAME')
     config = load_config_from_file()
-
     # Configure logging
     logging.getLogger('urllib3').setLevel(logging.INFO)
     logging.getLogger('urllib3').propagate = True

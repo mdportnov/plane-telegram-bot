@@ -143,7 +143,8 @@ class PlaneAPI:
                     ['@'+self.member_map.get(user_id) for user_id in unique_assignees]
                 )
                 report.append(
-                    f"• [{md_v2(task['name'])}]({md_v2(task_link)})\n"
+                    f"• [{md_v2(task['name'])}]({md_v2(task_link)}) "
+                    f" `{(task['id'])}`\n"
                     f"  └ Assigned to: {md_v2(assignees) if assignees else '_Unassigned_'}"
                 )
             report.append("")

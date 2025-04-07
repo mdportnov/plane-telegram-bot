@@ -25,7 +25,6 @@ def load_projects_from_file(file_path):
     return {project["project_id"]: f"{project['chat_id']}" for project in projects}
 
 def escape_markdown_v2(text: str,chars = "\\_*[\]()~`>#+\-=\|{}.!") -> str:
-    special_chars = r"\_*[]()~`>#+-=|{}.!"
     return re.sub(rf"([{chars}])", r"\\\1", text)
 
 def validate_dates(start_date, target_date, old_issue=None):

@@ -1,7 +1,6 @@
 import asyncio
 import datetime
 import re
-from ftplib import error_reply
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger

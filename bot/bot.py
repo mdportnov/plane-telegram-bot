@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import re
+from ftplib import error_reply
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -9,13 +10,14 @@ from croniter import croniter
 from telegram import Bot, Update
 from telegram.ext import CallbackContext, Application, CommandHandler
 
+from bot.service.api import PlaneAPI
 from bot.utils.logger_config import logger
 from bot.utils.utils import validate_dates, escape_markdown_v2, fail_emoji, index_to_priority, success_emoji
 from bot.utils.utils_tg import get_mentions_list
 
 
 class PlaneNotifierBot:
-    def __init__(self, bot_token,bot_name, plane_api,config,members_map, projects_map):
+    def __init__(self, bot_token,bot_name, plane_api : PlaneAPI,config,members_map, projects_map):
         self.bot_token = bot_token
         self.bot_name = bot_name
 
@@ -56,10 +58,14 @@ class PlaneNotifierBot:
             logger.debug(report)
             try:
                 # Send report to the chat
-                await self.bot.send_message(chat_id=chat_id, text=report, parse_mode="MarkdownV2")
                 logger.info(f"Successfully sent report for project ID: {project_id} to chat ID: {chat_id}.")
+                await self.bot.send_message(chat_id=chat_id, text=report, parse_mode="MarkdownV2")
             except Exception as e:
                 logger.error(f"Failed to send report to chat ID: {chat_id} for project ID: {project_id}. Error: {e}")
+                error_reply = fail_emoji + escape_markdown_v2("Failed to send report.")
+                if self.plane_api.mode.upper() == "DEBUG":
+                    error_reply += escape_markdown_v2(f"\nError details : {e}")
+                await self.bot.send_message(chat_id=chat_id, text=error_reply, parse_mode="MarkdownV2")
 
     async def get_states_list(self,update: Update,context : CallbackContext):
         try:
@@ -178,11 +184,16 @@ class PlaneNotifierBot:
                 replay = self.construct_update_replay(updated_issue=updated_issue,old_issue=old_issue,project_id=project_id)
                 await update.message.reply_text(replay,parse_mode="MarkdownV2")
             else:
-                await update.message.reply_text(fail_emoji + "Failed to update the task. Please try again later.")
+                error_reply = fail_emoji + "Failed to update the task. Please try again later."
+                if self.plane_api.mode.upper() == "DEBUG":
+                    error_reply += f"\nApi responce : ${updated_issue}"
+                await update.message.reply_text(error_reply)
         except Exception as e :
-            logger.error(f"Error handling /updatetask command: {e}, ${e.__cause__}")
-            await update.message.reply_text(
-                fail_emoji + "An error occurred while updating the task. Please check your input and try again.")
+            logger.error(f"Error handling /updatetask command: {e}, {e.__cause__}")
+            error_reply = fail_emoji + "An error occurred while updating the task. Please check your input and try again."
+            if self.plane_api.mode.upper() == "DEBUG":
+                error_reply += f"\nError details : {e}"
+            await update.message.reply_text(error_reply)
 
     async def new_task(self, update: Update, context: CallbackContext):
         try:
@@ -271,11 +282,16 @@ class PlaneNotifierBot:
                 replay = self.construct_new_replay(result,project_id)
                 await update.message.reply_text(replay,parse_mode="MarkdownV2")
             else:
-                await update.message.reply_text(fail_emoji + "Failed to create the task. Please try again later.")
+                error_reply = fail_emoji + "Failed to create the task. Please try again later."
+                if self.plane_api.mode.upper() == "DEBUG":
+                    error_reply += f"\nApi response : ${result}"
+                await update.message.reply_text(error_reply)
         except Exception as e:
-            logger.error(f"Error handling /newtask command: {e}, ${e.__cause__}")
-            await update.message.reply_text(
-                fail_emoji + "An error occurred while creating the task. Please check your input and try again.")
+            logger.error(f"Error handling /newtask command: {e}, {e.__cause__}")
+            error_reply = fail_emoji + "An error occurred while creating the task. Please check your input and try again."
+            if self.plane_api.mode.upper() == "DEBUG":
+                error_reply += f"\nError details : {e}"
+            await update.message.reply_text(error_reply)
 
     async def run(self):
         logger.info("Starting PlaneNotifierBot...")
@@ -286,8 +302,9 @@ class PlaneNotifierBot:
                 timezone=self.timezone
             )
             scheduler.add_job(
-                self.periodic_task,
-                cronTrigger
+                func = self.send_report_to_chats,
+                trigger = cronTrigger,
+                misfire_grace_time=30
             )
             scheduler.start()
 
@@ -362,7 +379,7 @@ class PlaneNotifierBot:
         if updated_issue["assignees"] != old_issue["assignees"]:
             replay += f"Assignees:\n"
         for assignee_id in [item for item in updated_issue["assignees"] if item not in old_issue["assignees"]]:
-            replay += f" \u2795 \@{md_v2(self.members_map.get(assignee_id))}\n"
+            replay += f" \u2795 @{md_v2(self.members_map.get(assignee_id))}\n"
         return replay
     def construct_new_replay(self, new_issue, project_id):
         md_v2 = escape_markdown_v2
@@ -376,18 +393,18 @@ class PlaneNotifierBot:
         )
         description_match = re.match(r'<.*?>(?P<description_text>.*?)</.*?>', new_issue['description_html'])
         if description_match:
-            replay += f"Description: {description_match.group('description_text')}\n"
+            replay += f"Description: {md_v2(description_match.group('description_text'))}\n"
         if new_issue['start_date']:
-            replay += f"Start: {new_issue['start_date']}\n"
+            replay += f"Start: {md_v2(new_issue['start_date'])}\n"
         if new_issue['target_date']:
-            replay += f"Deadline: {new_issue['target_date']}\n"
+            replay += f"Deadline: {md_v2(new_issue['target_date'])}\n"
         if new_issue['priority'] != "none":
-            replay += f"Priority:{new_issue['priority']}\n"
+            replay += f"Priority:{md_v2(new_issue['priority'])}\n"
         states_map = self.plane_api.map_states_by_ids(project_id)
         if states_map.get(new_issue['state']):
-            replay += f"State:{states_map.get(new_issue['state'])}\n"
+            replay += f"State:{md_v2(states_map.get(new_issue['state']))}\n"
         if new_issue["assignees"]:
             replay += f"Assignees:\n"
         for assignee_id in new_issue["assignees"]:
-            replay += f"  {self.members_map.get(assignee_id)}\n"
+            replay += f"  {md_v2(self.members_map.get(assignee_id))}\n"
         return replay

@@ -66,7 +66,7 @@ jobs:
           mkdir -p ~/.ssh
           touch ~/.ssh/config
           echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
-          
+
       - name: "Deploy to remote server"
         run: |
           ssh -p 2251 -i id_rsa ubuntu@plane.command.mephi.ru \
@@ -78,5 +78,8 @@ jobs:
           docker run -d \
             --name ${{ github.event.inputs.app_name }} \
             -v ~/plane-bot/.env:/app/.env \
+            -v ~/plane-bot/config.yaml:/app/config.yaml \
+            -v ~/plane-bot/members.json:/app/members.json \
+            -v ~/plane-bot/projects.json:/app/projects.json \
             --restart unless-stopped \
             ghcr.io/${{ github.repository }}/${{ github.event.inputs.app_name }}:latest"

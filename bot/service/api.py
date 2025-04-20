@@ -1,6 +1,5 @@
 import json
 
-
 import requests
 
 from bot.utils.logger_config import logger
@@ -8,7 +7,7 @@ from bot.utils.utils import escape_markdown_v2
 
 
 class PlaneAPI:
-    def __init__(self, api_token, workspace_slug,config, member_map, base_url='https://api.plane.so/', mode='debug'):
+    def __init__(self, api_token, workspace_slug, config, member_map, base_url='https://api.plane.so/', mode='debug'):
         self.mode = mode
         self.api_token = api_token
         self.workspace_slug = workspace_slug
@@ -52,7 +51,8 @@ class PlaneAPI:
         else:
             logger.error(f"Error fetching tasks for project {project_id}: {response.status_code}")
             return None
-    def get_task_by_uuid(self, project_id,issue_id):
+
+    def get_task_by_uuid(self, project_id, issue_id):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/{issue_id}'
         response = requests.get(url, headers=self.headers)
         logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
@@ -62,6 +62,7 @@ class PlaneAPI:
         else:
             logger.error(f"Error fetching task from project {project_id}: {response.status_code}")
             return None
+
     def get_task_states_ids(self, project_id):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/states/'
         response = requests.get(url, headers=self.headers)
@@ -84,15 +85,16 @@ class PlaneAPI:
             dict: A dictionary containing tasks categorized by statuses.
         """
         states_list = self.config["report_states_list"]
-        #Fetch project states
-        project_states_map =  self.map_states_by_ids(project_id)
+        # Fetch project states
+        project_states_map = self.map_states_by_ids(project_id)
         if not project_states_map:
             logger.warning(f"No statuses found for project ID: {project_id}")
             return
-        inv_project_states_map = { v : k  for k,v in project_states_map.items() }
+        inv_project_states_map = {v: k for k, v in project_states_map.items()}
 
         # Task states filter
-        report_states_map = {inv_project_states_map[item] : item for item in inv_project_states_map.keys() if item in states_list }
+        report_states_map = {inv_project_states_map[item]: item for item in inv_project_states_map.keys() if
+                             item in states_list}
         if not report_states_map:
             logger.warning(f"No relevant statuses found for project ID: {project_id}")
             return
@@ -103,7 +105,8 @@ class PlaneAPI:
             return
         # Construct categorized tasks
         result = {
-            state_name : [task for task in tasks_data["results"] if task["state"] == state_id] for state_id ,state_name in report_states_map.items()
+            state_name: [task for task in tasks_data["results"] if task["state"] == state_id] for state_id, state_name
+            in report_states_map.items()
         }
 
         return result
@@ -140,7 +143,7 @@ class PlaneAPI:
                 task_link = f"{project_base_url}{(task['id'])}"
                 unique_assignees = set(task.get("assignees", []))
                 assignees = ", ".join(
-                    ['@'+self.member_map.get(user_id) for user_id in unique_assignees]
+                    ['@' + self.member_map.get(user_id) for user_id in unique_assignees]
                 )
                 report.append(
                     f"• [{md_v2(task['name'])}]({md_v2(task_link)}) "
@@ -154,7 +157,8 @@ class PlaneAPI:
 
     def create_issue(self, project_id, issue_data):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/'
-        response = requests.post(url, headers={**self.headers, "Content-Type": "application/json"}, data=json.dumps(issue_data))
+        response = requests.post(url, headers={**self.headers, "Content-Type": "application/json"},
+                                 data=json.dumps(issue_data))
         logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
         if response.status_code == 201:
             logger.info(f"Issue created successfully in project {project_id}.")
@@ -163,9 +167,10 @@ class PlaneAPI:
             logger.error(f"Error creating issue in project {project_id}: {response.status_code}, {response.text}")
             return None
 
-    def update_issue(self,project_id,issue_id, update_issue_data):
+    def update_issue(self, project_id, issue_id, update_issue_data):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/{issue_id}/'
-        response = requests.patch(url, headers={**self.headers, "Content-Type": "application/json"}, data=json.dumps(update_issue_data))
+        response = requests.patch(url, headers={**self.headers, "Content-Type": "application/json"},
+                                  data=json.dumps(update_issue_data))
         logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
         if response.status_code == 200:
             logger.info(f"Issue update successfully in project {project_id}.")
@@ -174,7 +179,7 @@ class PlaneAPI:
             logger.error(f"Error updating issue in project {project_id}: {response.status_code}, {response.text}")
             return None
 
-    def map_states_by_ids(self,project_id):
+    def map_states_by_ids(self, project_id):
         states = self.get_task_states_ids(project_id)
         mapped_statutes = {
             data["id"]: data["name"] for data in states["results"]

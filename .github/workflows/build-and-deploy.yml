@@ -69,7 +69,7 @@ jobs:
 
       - name: "Deploy to remote server"
         run: |
-          ssh -p 2251 -i id_rsa ubuntu@plane.command.mephi.ru \
+          ssh -p ${{ secrets.SSH_PORT }} -i id_rsa ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
           "docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} && \
           docker pull ghcr.io/${{ github.repository }}/${{ github.event.inputs.app_name }}:latest && \
           docker stop ${{ github.event.inputs.app_name }} || true && \

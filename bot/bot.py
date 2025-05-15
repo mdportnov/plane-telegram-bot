@@ -1,6 +1,8 @@
 import asyncio
 import datetime
 import re
+import traceback
+import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -10,10 +12,9 @@ from telegram import Bot, Update
 from telegram.ext import CallbackContext, Application, CommandHandler
 
 from bot.service.api import PlaneAPI
-from bot.utils.logger_config import logger
+from bot.utils.logger_config import setup_logger, logger
 from bot.utils.utils import validate_dates, escape_markdown_v2, fail_emoji, index_to_priority, success_emoji
 from bot.utils.utils_tg import get_mentions_list
-
 
 class PlaneNotifierBot:
     def __init__(self, bot_token, bot_name, plane_api: PlaneAPI, config, members_map, projects_map):
@@ -92,13 +93,14 @@ class PlaneNotifierBot:
             update_issue_pattern = re.compile(
                 rf'^/updatetask(?:@{self.bot_name})?[\s,]*'
                 r'\nUUID\s*:\s*(?P<id>\S{8}-\S{4}-\S{4}-\S{4}-\S{12})[\s,]*'
-                r'(?:\nTitle\s*:\s*(?P<name>.+?)[\s,]*)?'
-                r'(?:\nDescription\s*:\s*(?P<description>.*?)[\s,]*)?'
+                r'(?:\nTitle\s*:\s*(?P<name>[^@]+?)[\s,]*)?'
+                r'(?:\nDescription\s*:\s*(?P<description>[^@]*?)[\s,]*)?'
                 r'(?:\nStart\s*:\s*(?P<start_date>\d{4}-\d{2}-\d{2})[\s,]*)?'
                 r'(?:\nDeadline\s*:\s*(?P<target_date>\d{4}-\d{2}-\d{2})[\s,]*)?'
                 r'(?:\nPriority\s*:\s*(?P<priority>[0-4])[\s,]*)?'
-                r'(?:\nState\s*:\s*(?P<state>.*?)[\s,]*)?'
-                r'(?:@\w+[\s,]*)*$'
+                r'(?:\nState\s*:\s*(?P<state>[^@]*?)[\s,]*)?'
+                #r'(?:@[a-zA-Z0-9](?!.*?__)[a-zA-Z0-9_]{4,30}[a-zA-Z0-9][\s]*)*$'
+                r'(?:(?<!\S)@[a-zA-Z0-9](?!.*?__)[a-zA-Z0-9_]{4,30}[a-zA-Z0-9](?!\s*\(https?://t\.me/(\S)*)(?:\s+|$))*$'
                 , re.MULTILINE)
             # Validate the command
             command_text = update.message.text
@@ -113,14 +115,18 @@ class PlaneNotifierBot:
                     "Description: <task-description>\n"
                     "Start: <task-start-date> ( YYYY-MM-DD )\n"
                     "Deadline: <task-deadline-date> ( YYYY-MM-DD )\n"
-                    "Priority: <(lowest)0->1->2->3->4(highest)>\n"
-                    "State: <status-name>(check available with /getstates)\n"
+                    "Priority: <(lowest) 0->1->2->3->4 (highest)>\n"
+                    "State: <status-name> (check available with /getstates)\n"
                     "[ @assignees_names ]"
                 )
                 return
 
             # Parse the command
-            project_id = self.chat_to_project_map[str(update.message.chat_id)]
+            project_id = self.chat_to_project_map.get(str(update.message.chat_id))
+            if project_id is None:
+                replay = fail_emoji + "Project with this chat_id is not specified in JSON config"
+                await update.message.reply_text(replay)
+                return
             task_id = match.group("id")
             new_task_title = match.group("name")
             new_task_description = match.group("description")
@@ -191,24 +197,26 @@ class PlaneNotifierBot:
                     error_reply += f"\nApi responce : ${updated_issue}"
                 await update.message.reply_text(error_reply)
         except Exception as e:
-            logger.error(f"Error handling /updatetask command: {e}, {e.__cause__}")
+            logger.error(f"Error handling /updatetask command: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}")
             error_reply = fail_emoji + "An error occurred while updating the task. Please check your input and try again."
             if self.plane_api.mode.upper() == "DEBUG":
-                error_reply += f"\nError details : {e}"
+                error_reply += f"\nError : {e} \n Error details :{traceback.format_exc()}"
             await update.message.reply_text(error_reply)
 
     async def new_task(self, update: Update, context: CallbackContext):
         try:
+
             # Pattern for command
             new_issue_pattern = re.compile(
                 rf'^/newtask(?:@{self.bot_name})?[\s,]*'
-                r'\nTitle\s*:\s*(?P<name>.+?)[\s,]*'
-                r'(?:\nDescription\s*:\s*(?P<description>.*?)[\s,]*)?'
+                r'\nTitle\s*:\s*(?P<name>[^@]+?)[\s,]*'
+                r'(?:\nDescription\s*:\s*(?P<description>[^@]*?)[\s,]*)?'
                 r'(?:\nStart\s*:\s*(?P<start_date>\d{4}-\d{2}-\d{2})[\s,]*)?'
                 r'(?:\nDeadline\s*:\s*(?P<target_date>\d{4}-\d{2}-\d{2})[\s,]*)?'
                 r'(?:\nPriority\s*:\s*(?P<priority>[0-4])[\s,]*)?'
-                r'(?:\nState\s*:\s*(?P<state>.*?)[\s,]*)?'
-                r'(?:@\w+[\s,]*)*$'
+                r'(?:\nState\s*:\s*(?P<state>[^@]*?)[\s,]*)?'
+                #r'(?:@[a-zA-Z0-9](?!.*?__)[a-zA-Z0-9_]{4,30}[a-zA-Z0-9][\s]*)*$'
+                r'(?:(?<!\S)@[a-zA-Z0-9](?!.*?__)[a-zA-Z0-9_]{4,30}[a-zA-Z0-9](?!\s*\(https?://t\.me/(\S)*)(?:\s+|$))*$'
                 , re.MULTILINE)
             # Validate the command pattern
             command_text = update.message.text
@@ -222,13 +230,17 @@ class PlaneNotifierBot:
                     "Description(opt): <task-description>\n"
                     "Start(opt) : <task-start-date> ( YYYY-MM-DD )\n"
                     "Deadline(opt) : <task-deadline-date> ( YYYY-MM-DD )\n"
-                    "Priority(opt): <(lowest)0->1->2->3->4(highest)>\n"
-                    "State(opt): <state-name>(check available with /getstates)\n"
+                    "Priority(opt): <(lowest) 0->1->2->3->4 (highest)>\n"
+                    "State(opt): <state-name> (check available with /getstates)\n"
                     "[ @assignees_names ]"
                 )
                 return
             # Parse the command
-            project_id = self.chat_to_project_map[str(update.message.chat_id)]
+            project_id = self.chat_to_project_map.get(str(update.message.chat_id))
+            if project_id is None:
+                replay = fail_emoji + "Project with this chat_id is not specified in JSON config"
+                await update.message.reply_text(replay)
+                return
             task_name = match.group("name")
             task_description = match.group("description")
             start_date = match.group("start_date")
@@ -289,10 +301,10 @@ class PlaneNotifierBot:
                     error_reply += f"\nApi response : ${result}"
                 await update.message.reply_text(error_reply)
         except Exception as e:
-            logger.error(f"Error handling /newtask command: {e}, {e.__cause__}")
+            logger.error(f"Error handling /newtask command: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()} ")
             error_reply = fail_emoji + "An error occurred while creating the task. Please check your input and try again."
             if self.plane_api.mode.upper() == "DEBUG":
-                error_reply += f"\nError details : {e}"
+                error_reply += f"\nError : {e} \n Error details :{traceback.format_exc()}"
             await update.message.reply_text(error_reply)
 
     async def get_report(self, update: Update, context: CallbackContext):
@@ -302,11 +314,11 @@ class PlaneNotifierBot:
 
         try:
             # 1. Retrieve Project ID from mapping
-            project_id = self.chat_to_project_map[str(update.message.chat_id)]
-            if not project_id:
-                await update.message.reply_text("No project associated with this chat.")
+            project_id = self.chat_to_project_map.get(str(update.message.chat_id))
+            if project_id is None:
+                replay = fail_emoji + "Project with this chat_id is not specified in JSON config"
+                await update.message.reply_text(replay)
                 return
-
             # 2. Fetch Project Details and Tasks
             project_details = self.plane_api.get_project(project_id)
             if not project_details:
@@ -327,12 +339,18 @@ class PlaneNotifierBot:
                 logger.info(f"Successfully sent report for project ID: {project_id} to chat ID: {chat_id}.")
 
             except Exception as e:
-                logger.error(f"Failed to send report to chat ID: {chat_id} for project ID: {project_id}. Error: {e}")
-                await update.message.reply_text("Failed to send report.")
+                error_reply = fail_emoji + "Failed to send report."
+                if self.plane_api.mode.upper() == "DEBUG":
+                    error_reply += f"\nError : {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}"
+                logger.error(f"Failed to send report to chat ID: {chat_id} for project ID: {project_id}. Error: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}")
+                await update.message.reply_text(error_reply)
 
         except Exception as e:
-            logger.exception(f"Error processing /getreport command for chat ID: {chat_id}. Error: {e}")
-            await update.message.reply_text("An unexpected error occurred.")  # Generic error message
+            error_reply = fail_emoji + "An unexpected error occurred "
+            if self.plane_api.mode.upper() == "DEBUG":
+                error_reply += f"\nError : {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}"
+            logger.error(f"Error processing /getreport command for chat ID: {chat_id}. Error: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}")
+            await update.message.reply_text(error_reply)  # Generic error message
 
     async def run(self):
         logger.info("Starting PlaneNotifierBot...")
@@ -449,5 +467,5 @@ class PlaneNotifierBot:
         if new_issue["assignees"]:
             replay += f"Assignees:\n"
         for assignee_id in new_issue["assignees"]:
-            replay += f"  {md_v2(self.members_map.get(assignee_id))}\n"
+            replay += f" @{md_v2(self.members_map.get(assignee_id))}\n"
         return replay

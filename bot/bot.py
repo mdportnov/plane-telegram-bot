@@ -325,7 +325,7 @@ class PlaneNotifierBot:
             # 1. Retrieve Project ID from mapping
             project_id = self.chat_to_project_map.get(str(update.message.chat_id))
             if project_id is None:
-                replay = fail_emoji + "Project with this chat_id is not specified in JSON config"
+                replay = fail_emoji + " Project with this chat_id is not specified in projects.json config"
                 await update.message.reply_text(replay)
                 return
 
@@ -356,7 +356,7 @@ class PlaneNotifierBot:
                 await update.message.reply_text(error_reply)
 
         except Exception as e:
-            error_reply = fail_emoji + "An unexpected error occurred "
+            error_reply = fail_emoji + " An unexpected error occurred "
             if self.plane_api.mode.upper() == "DEBUG":
                 error_reply += f"\nError : {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}"
             logger.error(f"Error processing /getreport command for chat UUID: {chat_id}. Error: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}")
@@ -414,8 +414,8 @@ class PlaneNotifierBot:
         task_link = f"{self.plane_api.base_url}{self.plane_api.workspace_slug}/projects/{project_id}/issues/{updated_issue['id']}"
         replay = (
                 success_emoji +
-                f"Task updated successfully:\n[{md_v2(updated_issue['name'])}]({md_v2(task_link)})\n"
-                f"UUID:`{md_v2(updated_issue['id'])}`\n"
+                f" Task updated successfully:\n[{md_v2(updated_issue['name'])}]({md_v2(task_link)})\n"
+                f"UUID: `{md_v2(updated_issue['id'])}`\n"
         )
         if old_issue['name'] != updated_issue['name']:
             replay += f"Title: ~{md_v2(old_issue['name'])}~ \u21D2 {md_v2(updated_issue['name'])}\n"
@@ -459,7 +459,7 @@ class PlaneNotifierBot:
         # Constructing replay
         replay = (
                 success_emoji +
-                f'Task created successfully:\n[{md_v2(new_issue["name"])}]({md_v2(task_link)})\n'
+                f' Task created successfully:\n[{md_v2(new_issue["name"])}]({md_v2(task_link)})\n'
                 f'UUID: `{md_v2(new_issue["id"])}`\n'
                 f'Title: {md_v2(new_issue["name"])}\n'
         )

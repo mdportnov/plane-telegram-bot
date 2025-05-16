@@ -115,9 +115,9 @@ class PlaneNotifierBot:
                     "Description: <task-description>\n"
                     "Start: <task-start-date> ( YYYY-MM-DD )\n"
                     "Deadline: <task-deadline-date> ( YYYY-MM-DD )\n"
-                    "Priority: <(lowest) 0->1->2->3->4 (highest)>\n"
-                    "State: <status-name> (check available with /getstates)\n"
-                    "[ @assignees_names ]"
+                    "Priority: <(lowest)0->1->2->3->4(highest)>\n"
+                    "State: <status-name> (check with /getstates)\n"
+                    "[@assignees_names]"
                 )
                 return
 
@@ -227,12 +227,12 @@ class PlaneNotifierBot:
                     "Invalid format. Use:\n"
                     "/newtask\n"
                     "Title: <task-title>\n"
-                    "Description(opt): <task-description>\n"
-                    "Start(opt) : <task-start-date> ( YYYY-MM-DD )\n"
-                    "Deadline(opt) : <task-deadline-date> ( YYYY-MM-DD )\n"
-                    "Priority(opt): <(lowest) 0->1->2->3->4 (highest)>\n"
-                    "State(opt): <state-name> (check available with /getstates)\n"
-                    "[ @assignees_names ]"
+                    "Description (optional): <task-description>\n"
+                    "Start (optional): <task-start-date> (YYYY-MM-DD)\n"
+                    "Deadline (optional): <task-deadline-date> (YYYY-MM-DD)\n"
+                    "Priority (optional): <(lowest)0->1->2->3->4(highest)>\n"
+                    "State (optional): <state-name> (check with /getstates)\n"
+                    "[@assignees_names]"
                 )
                 return
             # Parse the command

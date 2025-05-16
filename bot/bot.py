@@ -168,8 +168,7 @@ class PlaneNotifierBot:
                 return
 
             # Filter new assignees
-            assignees_ids = [item for item in new_assignees_ids if item not in old_issue["assignees"]]
-
+            assignees_ids = list(set(new_assignees_ids + old_issue["assignees"]))
             # Validate dates
             if not validate_dates(new_start_date, new_target_date, old_issue):
                 await update.message.reply_text(fail_emoji + " Invalid dates, try again")

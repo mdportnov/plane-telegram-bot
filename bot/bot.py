@@ -40,21 +40,21 @@ class PlaneNotifierBot:
 
     async def send_report_to_chats(self):
         for project_id, chat_id in self.project_to_chat_map.items():
-            logger.info(f"Processing project ID: {project_id} for chat ID: {chat_id}")
+            logger.info(f"Processing project UUID: {project_id} for chat UUID: {chat_id}")
 
             # Fetch project details
             project_details = self.plane_api.get_project(project_id)
             if not project_details:
-                logger.warning(f"No details found for project ID: {project_id}. Skipping")
+                logger.warning(f"No details found for project UUID: {project_id}. Skipping")
                 continue
 
             # Fetch tasks categorized by status
             categorized_tasks = self.plane_api.get_tasks_by_status_for_project(project_id)
             if not categorized_tasks:
-                logger.warning(f"No categorized tasks found for project ID: {project_id}. Skipping")
+                logger.warning(f"No categorized tasks found for project UUID: {project_id}. Skipping")
                 continue
             if all((value is None or value == list()) for value in categorized_tasks.values()):
-                logger.warning(f"No categorized tasks found for project ID: {project_id}. Skipping")
+                logger.warning(f"No categorized tasks found for project UUID: {project_id}. Skipping")
                 continue
 
             # Generate report for the project
@@ -62,10 +62,10 @@ class PlaneNotifierBot:
             logger.debug(report)
             try:
                 # Send report to the chat
-                logger.info(f"Successfully sent report for project ID: {project_id} to chat ID: {chat_id}")
+                logger.info(f"Successfully sent report for project UUID: {project_id} to chat UUID: {chat_id}")
                 await self.bot.send_message(chat_id=chat_id, text=report, parse_mode="MarkdownV2")
             except Exception as e:
-                logger.error(f"Failed to send report to chat ID: {chat_id} for project ID: {project_id}. Error: {e}")
+                logger.error(f"Failed to send report to chat UUID: {chat_id} for project UUID: {project_id}. Error: {e}")
                 error_reply = fail_emoji + escape_markdown_v2(" Failed to send report")
                 if self.plane_api.mode.upper() == "DEBUG":
                     error_reply += escape_markdown_v2(f"\nError details : {e}")
@@ -116,10 +116,10 @@ class PlaneNotifierBot:
                     "UUID: <task-UUID>\n"
                     "Title: <task-title>\n"
                     "Description: <task-description>\n"
-                    "Start: <task-start-date> ( YYYY-MM-DD )\n"
-                    "Deadline: <task-deadline-date> ( YYYY-MM-DD )\n"
+                    "Start: <task-start-date> (YYYY-MM-DD)\n"
+                    "Deadline: <task-deadline-date> (YYYY-MM-DD)\n"
                     "Priority: <(lowest)0->1->2->3->4(highest)>\n"
-                    "State: <status-name> (check with /getstates)\n"
+                    "State: <state-name> (check with /getstates)\n"
                     "[@assignees_names]"
                 )
                 return
@@ -332,12 +332,12 @@ class PlaneNotifierBot:
             # 2. Fetch Project Details and Tasks
             project_details = self.plane_api.get_project(project_id)
             if not project_details:
-                await update.message.reply_text(f"No details found for project ID: {project_id}")
+                await update.message.reply_text(f"No details found for project UUID: {project_id}")
                 return
 
             categorized_tasks = self.plane_api.get_tasks_by_status_for_project(project_id)
             if not categorized_tasks:
-                await update.message.reply_text(f"No tasks found for project ID: {project_id}")
+                await update.message.reply_text(f"No tasks found for project UUID: {project_id}")
                 return
 
             # 3. Generate Report
@@ -346,20 +346,20 @@ class PlaneNotifierBot:
             # 4. Send Report
             try:
                 await self.bot.send_message(chat_id=chat_id, text=report, parse_mode="MarkdownV2")
-                logger.info(f"Successfully sent report for project ID: {project_id} to chat ID: {chat_id}")
+                logger.info(f"Successfully sent report for project UUID: {project_id} to chat UUID: {chat_id}")
 
             except Exception as e:
                 error_reply = fail_emoji + " Failed to send report"
                 if self.plane_api.mode.upper() == "DEBUG":
                     error_reply += f"\nError : {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}"
-                logger.error(f"Failed to send report to chat ID: {chat_id} for project ID: {project_id}. Error: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}")
+                logger.error(f"Failed to send report to chat UUID: {chat_id} for project UUID: {project_id}. Error: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}")
                 await update.message.reply_text(error_reply)
 
         except Exception as e:
             error_reply = fail_emoji + "An unexpected error occurred "
             if self.plane_api.mode.upper() == "DEBUG":
                 error_reply += f"\nError : {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}"
-            logger.error(f"Error processing /getreport command for chat ID: {chat_id}. Error: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}")
+            logger.error(f"Error processing /getreport command for chat UUID: {chat_id}. Error: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}")
             await update.message.reply_text(error_reply)  # Generic error message
 
     async def run(self):
@@ -460,7 +460,7 @@ class PlaneNotifierBot:
         replay = (
                 success_emoji +
                 f'Task created successfully:\n[{md_v2(new_issue["name"])}]({md_v2(task_link)})\n'
-                f'ID: `{md_v2(new_issue["id"])}`\n'
+                f'UUID: `{md_v2(new_issue["id"])}`\n'
                 f'Title: {md_v2(new_issue["name"])}\n'
         )
 
@@ -472,10 +472,10 @@ class PlaneNotifierBot:
         if new_issue['target_date']:
             replay += f"Deadline: {md_v2(new_issue['target_date'])}\n"
         if new_issue['priority'] != "none":
-            replay += f"Priority:{md_v2(new_issue['priority'])}\n"
+            replay += f"Priority: {md_v2(new_issue['priority'])}\n"
         states_map = self.plane_api.map_states_by_ids(project_id)
         if states_map.get(new_issue['state']):
-            replay += f"State:{md_v2(states_map.get(new_issue['state']))}\n"
+            replay += f"State: {md_v2(states_map.get(new_issue['state']))}\n"
         if new_issue["assignees"]:
             replay += f"Assignees:\n"
         for assignee_id in new_issue["assignees"]:

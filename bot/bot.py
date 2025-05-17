@@ -35,6 +35,7 @@ class PlaneNotifierBot:
 
         self.application.add_handler(CommandHandler('newtask', self.new_task))
         self.application.add_handler(CommandHandler('updatetask', self.update_task))
+        self.application.add_handler(CommandHandler('removetask', self.remove_task))
         self.application.add_handler(CommandHandler('getstates', self.get_states_list))
         self.application.add_handler(CommandHandler('getreport', self.get_report))
 
@@ -92,7 +93,7 @@ class PlaneNotifierBot:
     async def update_task(self, update: Update, context: CallbackContext):
         try:
             # Pattern for command
-            update_issue_pattern = re.compile(
+            update_task_pattern = re.compile(
                 rf'^/updatetask(?:@{self.bot_name})?[\s,]*'
                 r'\nUUID\s*:\s*(?P<id>\S{8}-\S{4}-\S{4}-\S{4}-\S{12})[\s,]*'
                 r'(?:\nTitle\s*:\s*(?P<name>[^@]+?)[\s,]*)?'
@@ -107,7 +108,8 @@ class PlaneNotifierBot:
 
             # Validate the command
             command_text = update.message.text
-            match = update_issue_pattern.fullmatch(command_text)
+            print(update_task_pattern.match(command_text))
+            match = update_task_pattern.fullmatch(command_text)
             if not match:
                 await update.message.reply_text(
                     fail_emoji +
@@ -162,20 +164,20 @@ class PlaneNotifierBot:
                 return
 
             # Get old version of task
-            old_issue = self.plane_api.get_task_by_uuid(project_id, task_id)
-            if old_issue is None:
+            old_task = self.plane_api.get_task_by_uuid(project_id, task_id)
+            if old_task is None:
                 await update.message.reply_text(fail_emoji + " Invalid issue UUID, try again")
                 return
 
             # Filter new assignees
-            assignees_ids = list(set(new_assignees_ids + old_issue["assignees"]))
+            assignees_ids = list(set(new_assignees_ids + old_task["assignees"]))
             # Validate dates
-            if not validate_dates(new_start_date, new_target_date, old_issue):
+            if not validate_dates(new_start_date, new_target_date, old_task):
                 await update.message.reply_text(fail_emoji + " Invalid dates, try again")
                 return
 
             # Prepare issue data
-            new_issue_data = {
+            new_task_data = {
                 "name": new_task_title,
                 "description_html": f"<body>{new_task_description}</body>" if new_task_description is not None else None,
                 "start_date": new_start_date,
@@ -186,20 +188,21 @@ class PlaneNotifierBot:
             }
 
             # Clean empty values
-            for key, value in list(new_issue_data.items()):
+            for key, value in list(new_task_data.items()):
                 if value is None:
-                    new_issue_data.pop(key)
+                    new_task_data.pop(key)
 
             # Update the issue via Plane API
-            updated_issue = self.plane_api.update_issue(project_id, task_id, new_issue_data)
-            if updated_issue:
-                replay = self.construct_update_replay(updated_issue=updated_issue, old_issue=old_issue,
-                                                      project_id=project_id)
+            updated_task = self.plane_api.update_issue(project_id, task_id, new_task_data)
+            if updated_task:
+                print(f"updatetask ${updated_task} | ${old_task}")
+                replay = self.construct_update_replay(updated_issue=updated_task, old_task=old_task,project_id=project_id)
+                print(f"updatereplay ${replay}")
                 await update.message.reply_text(replay, parse_mode="MarkdownV2")
             else:
                 error_reply = fail_emoji + " Failed to update the task, try again"
                 if self.plane_api.mode.upper() == "DEBUG":
-                    error_reply += f"\nApi response : ${updated_issue}"
+                    error_reply += f"\nApi response : ${updated_task}"
                 await update.message.reply_text(error_reply)
         except Exception as e:
             logger.error(f"Error handling /updatetask command: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}")
@@ -211,7 +214,7 @@ class PlaneNotifierBot:
     async def new_task(self, update: Update, context: CallbackContext):
         try:
             # Pattern for command
-            new_issue_pattern = re.compile(
+            new_task_pattern = re.compile(
                 rf'^/newtask(?:@{self.bot_name})?[\s,]*'
                 r'\nTitle\s*:\s*(?P<name>[^@]+?)[\s,]*'
                 r'(?:\nDescription\s*:\s*(?P<description>[^@]*?)[\s,]*)?'
@@ -225,7 +228,7 @@ class PlaneNotifierBot:
 
             # Validate the command pattern
             command_text = update.message.text
-            match = new_issue_pattern.fullmatch(command_text)
+            match = new_task_pattern.fullmatch(command_text)
             if not match:
                 await update.message.reply_text(
                     fail_emoji +
@@ -283,7 +286,7 @@ class PlaneNotifierBot:
                 return
 
             # Prepare issue data
-            issue_data = {
+            task_data = {
                 "name": task_name,
                 "description_html": f"<body>{task_description}</body>" if task_description is not None else None,
                 "start_date": start_date,
@@ -294,14 +297,14 @@ class PlaneNotifierBot:
             }
 
             # Clean empty values
-            for key, value in list(issue_data.items()):
+            for key, value in list(task_data.items()):
                 if value is None:
-                    issue_data.pop(key)
+                    task_data.pop(key)
 
             # Create the issue via Plane API
-            result = self.plane_api.create_issue(project_id, issue_data)
+            result = self.plane_api.create_issue(project_id, task_data)
             if result:
-                replay = self.construct_new_replay(result, project_id)
+                replay = self.construct_new_replay(new_task=result, project_id=project_id)
                 await update.message.reply_text(replay, parse_mode="MarkdownV2")
             else:
                 error_reply = fail_emoji + " Failed to create the task, try again"
@@ -314,6 +317,57 @@ class PlaneNotifierBot:
             if self.plane_api.mode.upper() == "DEBUG":
                 error_reply += f"\nError : {e} \n Error details :{traceback.format_exc()}"
             await update.message.reply_text(error_reply)
+
+    async def remove_task(self, update: Update, context: CallbackContext):
+        try:
+            # Pattern for command
+            remove_task_pattern = re.compile(
+                rf'^/removetask(?:@{self.bot_name})?[\s,]*'
+                r'(\nUUID\s*:)?\s*(?P<id>\S{8}-\S{4}-\S{4}-\S{4}-\S{12})[\s,]*'
+                , re.MULTILINE)
+
+            # Validate the command pattern
+            command_text = update.message.text
+            match = remove_task_pattern.fullmatch(command_text)
+            if not match:
+                await update.message.reply_text(
+                    fail_emoji +
+                    " Invalid format. Use:\n"
+                    "/removetask <task-uuid>\n"
+                )
+                return
+
+            # Parse the command
+            project_id = self.chat_to_project_map.get(str(update.message.chat_id))
+            if project_id is None:
+                replay = fail_emoji + " Project with this chat_id is not specified in projects.json config"
+                await update.message.reply_text(replay)
+                return
+            task_id = match.group("id")
+            # Check if issue exist
+            issue_to_delete = self.plane_api.get_task_by_uuid(project_id, task_id)
+            if issue_to_delete is None :
+                replay = fail_emoji + " Task with provided uuid doesnt exist"
+                await update.message.reply_text(replay, parse_mode="MarkdownV2")
+                return
+            # Delete the issue via Plane API
+            result = self.plane_api.remove_issue(project_id, task_id)
+            print(result)
+            if result :
+                replay = success_emoji + " Task removed successfully"
+                await update.message.reply_text(replay, parse_mode="MarkdownV2")
+            else:
+                error_reply = fail_emoji + " Failed to remove task, try again"
+                if self.plane_api.mode.upper() == "DEBUG":
+                    error_reply += f"\nApi response : ${result}"
+                await update.message.reply_text(error_reply)
+        except Exception as e:
+            logger.error(f"Error handling /removetask command: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()} ")
+            error_reply = fail_emoji + " An error occurred while removing the task, check your input and try again"
+            if self.plane_api.mode.upper() == "DEBUG":
+                error_reply += f"\nError : {e} \n Error details :{traceback.format_exc()}"
+            await update.message.reply_text(error_reply)
+
 
     async def get_report(self, update: Update, context: CallbackContext):
         """Handles the /getreport command"""
@@ -408,7 +462,7 @@ class PlaneNotifierBot:
             "timezone": timezone
         }
 
-    def construct_update_replay(self, updated_issue, old_issue, project_id):
+    def construct_update_replay(self, updated_issue, old_task, project_id):
         md_v2 = escape_markdown_v2
         task_link = f"{self.plane_api.base_url}{self.plane_api.workspace_slug}/projects/{project_id}/issues/{updated_issue['id']}"
         replay = (
@@ -416,13 +470,13 @@ class PlaneNotifierBot:
                 f" Task updated successfully:\n[{md_v2(updated_issue['name'])}]({md_v2(task_link)})\n"
                 f"UUID: `{md_v2(updated_issue['id'])}`\n"
         )
-        if old_issue['name'] != updated_issue['name']:
-            replay += f"Title: ~{md_v2(old_issue['name'])}~ \u21D2 {md_v2(updated_issue['name'])}\n"
+        if old_task['name'] != updated_issue['name']:
+            replay += f"Title: ~{md_v2(old_task['name'])}~ \u21D2 {md_v2(updated_issue['name'])}\n"
 
-        old_description_match = re.fullmatch(r'<.*?>(?P<description>.*?)</.*?>', old_issue['description_html'])
+        old_description_match = re.fullmatch(r'<.*?>(?P<description>.*?)</.*?>', old_task['description_html'])
         updated_description_match = re.fullmatch(r'<.*?>(?P<description>.*?)</.*?>', updated_issue['description_html'])
         if (
-                old_description_match is not None and updated_description_match is not None
+                old_description_match.group("description") != ""
                 and
                 old_description_match.group("description") != updated_description_match.group("description")
         ):
@@ -432,51 +486,61 @@ class PlaneNotifierBot:
                 f" \u21D2 "
                 f"{md_v2(updated_description_match.group('description'))}\n"
             )
-        if old_issue['start_date'] != updated_issue['start_date']:
-            replay += f"Start: ~{md_v2(old_issue['start_date'])}~ \u21D2 {md_v2(updated_issue['start_date'])}\n"
-        if old_issue['target_date'] != updated_issue['target_date']:
-            replay += f"Deadline : ~{md_v2(old_issue['target_date'])}~ \u21D2 {md_v2(updated_issue['target_date'])}\n"
-        if old_issue['priority'] != updated_issue['priority']:
-            replay += f"Priority: ~{md_v2(old_issue['priority'])}~ \u21D2 {md_v2(updated_issue['priority'])}\n"
-        states_map = self.plane_api.map_states_by_ids(project_id)
-        if states_map.get(old_issue['state']) != states_map.get(updated_issue['state']):
+        if old_description_match.group("description") == "" and updated_description_match.group("description") != "" :
             replay += (
-                f"State: ~{md_v2(states_map.get(old_issue['state']))}~"
+                f"Description: {md_v2(updated_description_match.group('description'))}\n"
+            )
+        if old_task['start_date'] is not None and old_task['start_date'] != updated_issue['start_date']:
+            replay += f"Start: ~{md_v2(old_task['start_date'])}~ \u21D2 {md_v2(updated_issue['start_date'])}\n"
+        if old_task['start_date'] is None and updated_issue['start_date'] is not None:
+            replay += f"Start: {md_v2(updated_issue['start_date'])}\n"
+        if old_task['target_date'] is not None and old_task['target_date'] != updated_issue['target_date']:
+            replay += f"Deadline : ~{md_v2(old_task['target_date'])}~ \u21D2 {md_v2(updated_issue['target_date'])}\n"
+        if old_task['target_date'] is None and old_task['target_date'] != updated_issue['target_date']:
+            replay += f"Deadline : {md_v2(updated_issue['target_date'])}\n"
+        if old_task['priority'] == "none" and old_task['priority'] != updated_issue['priority']:
+            replay += f"Priority: {md_v2(updated_issue['priority'])}\n"
+        if old_task['priority'] != "none" and old_task['priority'] != updated_issue['priority']:
+            replay += f"Priority: ~{md_v2(old_task['priority'])}~ \u21D2 {md_v2(updated_issue['priority'])}\n"
+        states_map = self.plane_api.map_states_by_ids(project_id)
+        if states_map.get(old_task['state']) != states_map.get(updated_issue['state']):
+            replay += (
+                f"State: ~{md_v2(states_map.get(old_task['state']))}~"
                 f" \u21D2 "
                 f"{md_v2(states_map.get(updated_issue['state']))}\n"
             )
-        if updated_issue["assignees"] != old_issue["assignees"]:
+        if updated_issue["assignees"] != old_task["assignees"]:
             replay += f"Assignees:\n"
-        for assignee_id in [item for item in updated_issue["assignees"] if item not in old_issue["assignees"]]:
+        for assignee_id in [item for item in updated_issue["assignees"] if item not in old_task["assignees"]]:
             replay += f" \u2795 @{md_v2(self.members_map.get(assignee_id))}\n"
         return replay
 
-    def construct_new_replay(self, new_issue, project_id):
+    def construct_new_replay(self, new_task, project_id):
         md_v2 = escape_markdown_v2
-        task_link = f"{self.plane_api.base_url}{self.plane_api.workspace_slug}/projects/{project_id}/issues/{new_issue['id']}"
+        task_link = f"{self.plane_api.base_url}{self.plane_api.workspace_slug}/projects/{project_id}/issues/{new_task['id']}"
 
         # Constructing replay
         replay = (
                 success_emoji +
-                f' Task created successfully:\n[{md_v2(new_issue["name"])}]({md_v2(task_link)})\n'
-                f'UUID: `{md_v2(new_issue["id"])}`\n'
-                f'Title: {md_v2(new_issue["name"])}\n'
+                f' Task created successfully:\n[{md_v2(new_task["name"])}]({md_v2(task_link)})\n'
+                f'UUID: `{md_v2(new_task["id"])}`\n'
+                f'Title: {md_v2(new_task["name"])}\n'
         )
 
-        description_match = re.match(r'<.*?>(?P<description_text>.*?)</.*?>', new_issue['description_html'])
-        if description_match:
+        description_match = re.match(r'<.*?>(?P<description_text>.*?)</.*?>', new_task['description_html'])
+        if description_match.group('description_text') != "":
             replay += f"Description: {md_v2(description_match.group('description_text'))}\n"
-        if new_issue['start_date']:
-            replay += f"Start: {md_v2(new_issue['start_date'])}\n"
-        if new_issue['target_date']:
-            replay += f"Deadline: {md_v2(new_issue['target_date'])}\n"
-        if new_issue['priority'] != "none":
-            replay += f"Priority: {md_v2(new_issue['priority'])}\n"
+        if new_task['start_date']:
+            replay += f"Start: {md_v2(new_task['start_date'])}\n"
+        if new_task['target_date']:
+            replay += f"Deadline: {md_v2(new_task['target_date'])}\n"
+        if new_task['priority'] != "none":
+            replay += f"Priority: {md_v2(new_task['priority'])}\n"
         states_map = self.plane_api.map_states_by_ids(project_id)
-        if states_map.get(new_issue['state']):
-            replay += f"State: {md_v2(states_map.get(new_issue['state']))}\n"
-        if new_issue["assignees"]:
+        if states_map.get(new_task['state']):
+            replay += f"State: {md_v2(states_map.get(new_task['state']))}\n"
+        if new_task["assignees"]:
             replay += f"Assignees:\n"
-        for assignee_id in new_issue["assignees"]:
+        for assignee_id in new_task["assignees"]:
             replay += f" @{md_v2(self.members_map.get(assignee_id))}\n"
         return replay

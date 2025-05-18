@@ -167,6 +167,18 @@ class PlaneAPI:
             logger.error(f"Error creating issue in project {project_id}: {response.status_code}, {response.text}")
             return None
 
+    def remove_issue(self, project_id, issue_id):
+        url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/{issue_id}'
+        response = requests.delete(url, headers={**self.headers, "Content-Type": "application/json"})
+        logger.debug("deleting - "+json.dumps(response.text, indent=4, ensure_ascii=False))
+
+        if response.status_code == 204:
+            logger.info(f"Issue deleted successfully in project {project_id}.")
+            return response
+        else:
+            logger.error(f"Error deleting issue in project {project_id}: {response.status_code}, {response.text}")
+            return None
+
     def update_issue(self, project_id, issue_id, update_issue_data):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/{issue_id}/'
         response = requests.patch(url, headers={**self.headers, "Content-Type": "application/json"},

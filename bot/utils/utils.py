@@ -20,28 +20,33 @@ def load_members_from_file(file_path):
         members = json.load(file)
     return {member["member_id"]: f"{member['telegram_id']}" for member in members}
 
-
 def load_projects_from_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         projects = json.load(file)
     return {project["project_id"]: f"{project['chat_id']}" for project in projects}
-
 
 def escape_markdown_v2(text: str, chars = r'_*[]()~`>#+-=|{}.!') -> str:
     for char in chars:
         text = text.replace(char, '\\' + char)
     return text
 
+def normalize_date(date_str: str | None) -> str | None:
+    if date_str is None :
+        return None
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
+        try:
+            date_obj = datetime.datetime.strptime(date_str, fmt)
+            return date_obj.strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
 
 def validate_dates(start_date, target_date, old_issue=None):
     try:
-        print("TEST")
         if start_date:
             parsed_start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
-            print(parsed_start_date)
         if target_date:
             parsed_target_date = datetime.datetime.strptime(target_date, '%Y-%m-%d')
-            print(parsed_target_date)
         if start_date and target_date and parsed_target_date < parsed_start_date:
             return False
         if old_issue:
@@ -56,7 +61,6 @@ def validate_dates(start_date, target_date, old_issue=None):
         return True
     except ValueError:
         return False
-
 
 def html_to_markdownV2(html_text):
     # Заменяем основные теги
@@ -82,6 +86,7 @@ def html_to_markdownV2(html_text):
         html_text = html_text.replace(char, '\\' + char)
 
     return html_text.strip()
+
 def load_config_from_file(file_path="config.yaml"):
     with open(file_path, 'r') as stream:
         data_loaded = yaml.safe_load(stream)

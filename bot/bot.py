@@ -13,7 +13,8 @@ from telegram.ext import CallbackContext, Application, CommandHandler
 
 from bot.service.api import PlaneAPI
 from bot.utils.logger_config import setup_logger, logger
-from bot.utils.utils import validate_dates, escape_markdown_v2, fail_emoji, index_to_priority, success_emoji
+from bot.utils.utils import validate_dates, escape_markdown_v2, fail_emoji, index_to_priority, success_emoji, \
+    html_to_markdownV2
 from bot.utils.utils_tg import get_mentions_list
 
 class PlaneNotifierBot:
@@ -92,27 +93,12 @@ class PlaneNotifierBot:
 
     async def update_task(self, update: Update, context: CallbackContext):
         try:
-            # Pattern for command
-            update_task_pattern = re.compile(
-                rf'^/updatetask(?:@{self.bot_name})?[\s,]*'
-                r'\nUUID\s*:\s*(?P<id>\S{8}-\S{4}-\S{4}-\S{4}-\S{12})[\s,]*'
-                r'(?:\nTitle\s*:\s*(?P<name>[^@]+?)[\s,]*)?'
-                r'(?:\nDescription\s*:\s*(?P<description>[^@]*?)[\s,]*)?'
-                r'(?:\nStart\s*:\s*(?P<start_date>\d{4}-\d{2}-\d{2})[\s,]*)?'
-                r'(?:\nDeadline\s*:\s*(?P<target_date>\d{4}-\d{2}-\d{2})[\s,]*)?'
-                r'(?:\nPriority\s*:\s*(?P<priority>[0-4])[\s,]*)?'
-                r'(?:\nState\s*:\s*(?P<state>[^@]*?)[\s,]*)?'
-                #r'(?:@[a-zA-Z0-9](?!.*?__)[a-zA-Z0-9_]{4,30}[a-zA-Z0-9][\s]*)*$'
-                r'(?:(?<!\S)@[a-zA-Z0-9](?!.*?__)[a-zA-Z0-9_]{4,30}[a-zA-Z0-9](?!\s*\(https?://t\.me/(\S)*)(?:\s+|$))*$'
-                , re.MULTILINE)
-
+            md_v2 = escape_markdown_v2
             # Validate the command
             command_text = update.message.text
-            print(update_task_pattern.match(command_text))
-            match = update_task_pattern.fullmatch(command_text)
-            if not match:
-                await update.message.reply_text(
-                    fail_emoji +
+            update_task_pattern = re.compile(re.compile(rf'^/updatetask(?:@{self.bot_name})?[\s,]*'))
+            match = update_task_pattern.match(command_text)
+            fail_replay = ( fail_emoji +
                     " Invalid format. Use:\n"
                     "/updatetask\n"
                     "UUID: <task-UUID>\n"
@@ -122,28 +108,52 @@ class PlaneNotifierBot:
                     "Deadline: <task-deadline-date> (YYYY-MM-DD)\n"
                     "Priority: <(lowest)0->1->2->3->4(highest)>\n"
                     "State: <state-name> (check with /getstates)\n"
-                    "[@assignees_names]"
-                )
+                    "@assignees_names"
+                    )
+            if match is None:
+                await update.message.reply_text(md_v2(fail_replay), parse_mode="MarkdownV2")
                 return
-
             # Parse the command
             project_id = self.chat_to_project_map.get(str(update.message.chat_id))
             if project_id is None:
                 replay = fail_emoji + " Project with this chat_id is not specified in projects.json config"
-                await update.message.reply_text(replay)
+                await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
                 return
-            task_id = match.group("id")
-            new_task_title = match.group("name")
-            new_task_description = match.group("description")
-            new_start_date = match.group("start_date")
-            new_target_date = match.group("target_date")
-            new_priority = index_to_priority.get(match.group("priority"))
-            new_state = match.group("state")
+            new_parse_task = self.parse_updatetask_message(message=update.message.text)
+            task_id = new_parse_task.get("id")
+            new_task_title = new_parse_task.get("title")
+            new_task_description = new_parse_task.get("description")
+            new_start_date = new_parse_task.get("start")
+            new_target_date = new_parse_task.get("deadline")
+            new_priority_id = new_parse_task.get("priority")
+            new_state = new_parse_task.get("state")
+
+            uuid_pattern = re.compile(r'\s*(\S{8}-\S{4}-\S{4}-\S{4}-\S{12})[\s,]*')
+            if task_id is None or uuid_pattern.fullmatch(task_id) is None :
+                replay = fail_emoji + " Task id's incorrect"
+                await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
+                return 
+            if new_task_title == "":
+                replay = fail_emoji + " Task title cant be empty"
+                await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
+                return 
+            # Validate priority
+            new_priority = index_to_priority.get(new_priority_id)
+            if new_priority is None and new_priority_id is not None :
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid priority, use one from range : (lowest)0->1->2->3->4(highest)"), parse_mode="MarkdownV2")
+                return
+            # Validate state and state_id
             new_state_id = {v: k for k, v in self.plane_api.map_states_by_ids(project_id).items()}.get(new_state)
+            if new_state is not None and new_state_id is None:
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid state, check /getstates and try again"), parse_mode="MarkdownV2")
+                return
+            # Validate dates
+            if not validate_dates(new_start_date, new_target_date):
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid dates, try again"), parse_mode="MarkdownV2")
+                return
+            # Validate assignees
             new_assignees = get_mentions_list(update)
             inv_member_map = {v: k for k, v in self.members_map.items()}
-
-            # Validate assignees
             new_assignees_ids = list()
             invalid_names_list = list()
             for assignee_name in new_assignees:
@@ -152,28 +162,23 @@ class PlaneNotifierBot:
                 else:
                     invalid_names_list.append(assignee_name)
             if invalid_names_list and new_assignees:
-                replay = fail_emoji + f" Can't find assignees ids:"
+                replay = fail_emoji + f" Can't find assignees ids :"
                 for name in invalid_names_list:
                     replay += f"\n @{name}"
-                await update.message.reply_text(replay, parse_mode="MarkdownV2")
-                return
-
-            # Validate new_state and new_state_id
-            if new_state is not None and new_state_id is None:
-                await update.message.reply_text(fail_emoji + " Invalid new state, check /getstates and try again")
+                await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
                 return
 
             # Get old version of task
             old_task = self.plane_api.get_task_by_uuid(project_id, task_id)
             if old_task is None:
-                await update.message.reply_text(fail_emoji + " Invalid issue UUID, try again")
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid issue UUID, try again"), parse_mode="MarkdownV2")
                 return
 
             # Filter new assignees
-            assignees_ids = list(set(new_assignees_ids + old_task["assignees"]))
+            assignees_ids = list(set(new_assignees_ids + old_task.get("assignees")))
             # Validate dates
             if not validate_dates(new_start_date, new_target_date, old_task):
-                await update.message.reply_text(fail_emoji + " Invalid dates, try again")
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid dates, try again"), parse_mode="MarkdownV2")
                 return
 
             # Prepare issue data
@@ -195,72 +200,80 @@ class PlaneNotifierBot:
             # Update the issue via Plane API
             updated_task = self.plane_api.update_issue(project_id, task_id, new_task_data)
             if updated_task:
-                print(f"updatetask ${updated_task} | ${old_task}")
-                replay = self.construct_update_replay(updated_issue=updated_task, old_task=old_task,project_id=project_id)
-                print(f"updatereplay ${replay}")
+                replay = self.construct_update_replay(updated_task=updated_task, old_task=old_task, project_id=project_id)
                 await update.message.reply_text(replay, parse_mode="MarkdownV2")
             else:
                 error_reply = fail_emoji + " Failed to update the task, try again"
                 if self.plane_api.mode.upper() == "DEBUG":
                     error_reply += f"\nApi response : ${updated_task}"
-                await update.message.reply_text(error_reply)
+                await update.message.reply_text(md_v2(error_reply), parse_mode="MarkdownV2")
         except Exception as e:
             logger.error(f"Error handling /updatetask command: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}")
             error_reply = fail_emoji + " An error occurred while updating the task. Please check your input and try again"
             if self.plane_api.mode.upper() == "DEBUG":
                 error_reply += f"\nError : {e} \n Error details :{traceback.format_exc()}"
-            await update.message.reply_text(error_reply)
+            await update.message.reply_text(escape_markdown_v2(error_reply), parse_mode="MarkdownV2")
 
     async def new_task(self, update: Update, context: CallbackContext):
         try:
-            # Pattern for command
-            new_task_pattern = re.compile(
-                rf'^/newtask(?:@{self.bot_name})?[\s,]*'
-                r'\nTitle\s*:\s*(?P<name>[^@]+?)[\s,]*'
-                r'(?:\nDescription\s*:\s*(?P<description>[^@]*?)[\s,]*)?'
-                r'(?:\nStart\s*:\s*(?P<start_date>\d{4}-\d{2}-\d{2})[\s,]*)?'
-                r'(?:\nDeadline\s*:\s*(?P<target_date>\d{4}-\d{2}-\d{2})[\s,]*)?'
-                r'(?:\nPriority\s*:\s*(?P<priority>[0-4])[\s,]*)?'
-                r'(?:\nState\s*:\s*(?P<state>[^@]*?)[\s,]*)?'
-                #r'(?:@[a-zA-Z0-9](?!.*?__)[a-zA-Z0-9_]{4,30}[a-zA-Z0-9][\s]*)*$'
-                r'(?:(?<!\S)@[a-zA-Z0-9](?!.*?__)[a-zA-Z0-9_]{4,30}[a-zA-Z0-9](?!\s*\(https?://t\.me/(\S)*)(?:\s+|$))*$'
-                , re.MULTILINE)
-
+            md_v2 = escape_markdown_v2
             # Validate the command pattern
             command_text = update.message.text
-            match = new_task_pattern.fullmatch(command_text)
-            if not match:
-                await update.message.reply_text(
-                    fail_emoji +
-                    " Invalid format. Use:\n"
-                    "/newtask\n"
-                    "Title: <task-title>\n"
-                    "Description (optional): <task-description>\n"
-                    "Start (optional): <task-start-date> (YYYY-MM-DD)\n"
-                    "Deadline (optional): <task-deadline-date> (YYYY-MM-DD)\n"
-                    "Priority (optional): <(lowest)0->1->2->3->4(highest)>\n"
-                    "State (optional): <state-name> (check with /getstates)\n"
-                    "[@assignees_names]"
-                )
+            new_task_pattern = re.compile(rf'^/newtask(?:@{self.bot_name})?[\s,]*')
+            match = new_task_pattern.match(command_text)
+            fail_replay = ( fail_emoji +
+                      " Invalid format. Use:\n"
+                      "/newtask\n"
+                      "Title: <task-title>\n"
+                      "Description: <task-description>\n"
+                      "Start: <task-start-date> (YYYY-MM-DD)\n"
+                      "Deadline: <task-deadline-date> (YYYY-MM-DD)\n"
+                      "Priority: <(lowest)0->1->2->3->4(highest)>\n"
+                      "State: <state-name> (check with /getstates)\n"
+                      "@assignees_names"
+                      )
+            if match is None :
+                await update.message.reply_text(md_v2(fail_replay), parse_mode="MarkdownV2")
                 return
-
             # Parse the command
             project_id = self.chat_to_project_map.get(str(update.message.chat_id))
             if project_id is None:
                 replay = fail_emoji + " Project with this chat_id is not specified in projects.json config"
-                await update.message.reply_text(replay)
+                await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
                 return
-            task_name = match.group("name")
-            task_description = match.group("description")
-            start_date = match.group("start_date")
-            target_date = match.group("target_date")
-            priority = index_to_priority.get("priority")
-            state = match.group("state")
+            test_parse_task = self.parse_newtask_message(message=update.message.text)
+
+            task_name = test_parse_task.get("title")
+            task_description = test_parse_task.get("description")
+            start_date = test_parse_task.get("start")
+            target_date = test_parse_task.get("deadline")
+            priority_id = test_parse_task.get("priority")
+            state = test_parse_task.get("state")
+
+            #Validate title
+            if task_name is None or task_name == "" :
+                await update.message.reply_text(md_v2(fail_replay), parse_mode="MarkdownV2")
+                return 
+            # Validate priority
+            priority = index_to_priority.get(priority_id)
+            if priority is None and priority_id is not None :
+                await update.message.reply_text(md_v2((fail_emoji + " Invalid priority, use one from range : (lowest)0->1->2->3->4(highest)")), parse_mode="MarkdownV2")
+                return
+
+            # Validate state and state_id
             state_id = {v: k for k, v in self.plane_api.map_states_by_ids(project_id).items()}.get(state)
-            assignees = get_mentions_list(update)
-            inv_member_map = {v: k for k, v in self.members_map.items()}
+            if state is not None and state_id is None:
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid state, check /getstates and try again"), parse_mode="MarkdownV2")
+                return
+
+            # Validate dates
+            if not validate_dates(start_date, target_date):
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid dates, try again"), parse_mode="MarkdownV2")
+                return
 
             # Validate assignees
+            assignees = get_mentions_list(update)
+            inv_member_map = {v: k for k, v in self.members_map.items()}
             assignees_ids = list()
             invalid_names_list = list()
             for assignee_name in assignees:
@@ -272,17 +285,7 @@ class PlaneNotifierBot:
                 replay = fail_emoji + f" Can't find assignees ids :"
                 for name in invalid_names_list:
                     replay += f"\n @{name}"
-                await update.message.reply_text(replay, parse_mode="MarkdownV2")
-                return
-
-            # Validate state and state_id
-            if state is not None and state_id is None:
-                await update.message.reply_text(fail_emoji + " Invalid state, check /getstates and try again")
-                return
-
-            # Validate dates
-            if not validate_dates(start_date, target_date):
-                await update.message.reply_text(fail_emoji + " Invalid dates, try again")
+                await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
                 return
 
             # Prepare issue data
@@ -291,7 +294,7 @@ class PlaneNotifierBot:
                 "description_html": f"<body>{task_description}</body>" if task_description is not None else None,
                 "start_date": start_date,
                 "target_date": target_date,
-                "priority": priority,
+                "priority": priority_id,
                 "state": state_id,
                 "assignees": assignees_ids
             }
@@ -310,13 +313,13 @@ class PlaneNotifierBot:
                 error_reply = fail_emoji + " Failed to create the task, try again"
                 if self.plane_api.mode.upper() == "DEBUG":
                     error_reply += f"\nApi response : ${result}"
-                await update.message.reply_text(error_reply)
+                await update.message.reply_text(md_v2(error_reply), parse_mode="MarkdownV2")
         except Exception as e:
             logger.error(f"Error handling /newtask command: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()} ")
             error_reply = fail_emoji + " An error occurred while creating the task, check your input and try again"
             if self.plane_api.mode.upper() == "DEBUG":
                 error_reply += f"\nError : {e} \n Error details :{traceback.format_exc()}"
-            await update.message.reply_text(error_reply)
+            await update.message.reply_text(escape_markdown_v2(error_reply), parse_mode="MarkdownV2")
 
     async def remove_task(self, update: Update, context: CallbackContext):
         try:
@@ -367,7 +370,6 @@ class PlaneNotifierBot:
             if self.plane_api.mode.upper() == "DEBUG":
                 error_reply += f"\nError : {e} \n Error details :{traceback.format_exc()}"
             await update.message.reply_text(error_reply)
-
 
     async def get_report(self, update: Update, context: CallbackContext):
         """Handles the /getreport command"""
@@ -462,56 +464,56 @@ class PlaneNotifierBot:
             "timezone": timezone
         }
 
-    def construct_update_replay(self, updated_issue, old_task, project_id):
+    def construct_update_replay(self, updated_task, old_task, project_id):
         md_v2 = escape_markdown_v2
-        task_link = f"{self.plane_api.base_url}{self.plane_api.workspace_slug}/projects/{project_id}/issues/{updated_issue['id']}"
+        task_link = f"{self.plane_api.base_url}{self.plane_api.workspace_slug}/projects/{project_id}/issues/{updated_task['id']}"
         replay = (
                 success_emoji +
-                f" Task updated successfully:\n[{md_v2(updated_issue['name'])}]({md_v2(task_link)})\n"
-                f"UUID: `{md_v2(updated_issue['id'])}`\n"
+                f" Task updated successfully:\n[{md_v2(updated_task['name'])}]({md_v2(task_link)})\n"
+                f"UUID: `{md_v2(updated_task['id'])}`\n"
         )
-        if old_task['name'] != updated_issue['name']:
-            replay += f"Title: ~{md_v2(old_task['name'])}~ \u21D2 {md_v2(updated_issue['name'])}\n"
+        if old_task['name'] != updated_task['name']:
+            replay += f"Title: ~{md_v2(old_task['name'])}~ \u21D2 {md_v2(updated_task['name'])}\n"
 
-        old_description_match = re.fullmatch(r'<.*?>(?P<description>.*?)</.*?>', old_task['description_html'])
-        updated_description_match = re.fullmatch(r'<.*?>(?P<description>.*?)</.*?>', updated_issue['description_html'])
+        old_description_text= html_to_markdownV2(old_task.get("description_html"))
+        updated_description_text = html_to_markdownV2(updated_task.get("description_html"))
         if (
-                old_description_match.group("description") != ""
+                old_description_text != ""
                 and
-                old_description_match.group("description") != updated_description_match.group("description")
+                old_description_text != updated_description_text
         ):
             replay += (
                 f"Description: "
-                f"~{md_v2(old_description_match.group('description')) if old_description_match.group('description') else None}~"
+                f"~{old_description_text  if old_description_text else None}~"
                 f" \u21D2 "
-                f"{md_v2(updated_description_match.group('description'))}\n"
+                f"{updated_description_text}\n"
             )
-        if old_description_match.group("description") == "" and updated_description_match.group("description") != "" :
+        if old_description_text == "" and updated_description_text != "" :
             replay += (
-                f"Description: {md_v2(updated_description_match.group('description'))}\n"
+                f"Description: {updated_description_text}\n"
             )
-        if old_task['start_date'] is not None and old_task['start_date'] != updated_issue['start_date']:
-            replay += f"Start: ~{md_v2(old_task['start_date'])}~ \u21D2 {md_v2(updated_issue['start_date'])}\n"
-        if old_task['start_date'] is None and updated_issue['start_date'] is not None:
-            replay += f"Start: {md_v2(updated_issue['start_date'])}\n"
-        if old_task['target_date'] is not None and old_task['target_date'] != updated_issue['target_date']:
-            replay += f"Deadline : ~{md_v2(old_task['target_date'])}~ \u21D2 {md_v2(updated_issue['target_date'])}\n"
-        if old_task['target_date'] is None and old_task['target_date'] != updated_issue['target_date']:
-            replay += f"Deadline : {md_v2(updated_issue['target_date'])}\n"
-        if old_task['priority'] == "none" and old_task['priority'] != updated_issue['priority']:
-            replay += f"Priority: {md_v2(updated_issue['priority'])}\n"
-        if old_task['priority'] != "none" and old_task['priority'] != updated_issue['priority']:
-            replay += f"Priority: ~{md_v2(old_task['priority'])}~ \u21D2 {md_v2(updated_issue['priority'])}\n"
+        if old_task['start_date'] is not None and old_task['start_date'] != updated_task['start_date']:
+            replay += f"Start: ~{md_v2(old_task['start_date'])}~ \u21D2 {md_v2(updated_task['start_date'])}\n"
+        if old_task['start_date'] is None and updated_task['start_date'] is not None:
+            replay += f"Start: {md_v2(updated_task['start_date'])}\n"
+        if old_task['target_date'] is not None and old_task['target_date'] != updated_task['target_date']:
+            replay += f"Deadline : ~{md_v2(old_task['target_date'])}~ \u21D2 {md_v2(updated_task['target_date'])}\n"
+        if old_task['target_date'] is None and old_task['target_date'] != updated_task['target_date']:
+            replay += f"Deadline : {md_v2(updated_task['target_date'])}\n"
+        if old_task['priority'] == "none" and old_task['priority'] != updated_task['priority']:
+            replay += f"Priority: {md_v2(updated_task['priority'])}\n"
+        if old_task['priority'] != "none" and old_task['priority'] != updated_task['priority']:
+            replay += f"Priority: ~{md_v2(old_task['priority'])}~ \u21D2 {md_v2(updated_task['priority'])}\n"
         states_map = self.plane_api.map_states_by_ids(project_id)
-        if states_map.get(old_task['state']) != states_map.get(updated_issue['state']):
+        if states_map.get(old_task['state']) != states_map.get(updated_task['state']):
             replay += (
                 f"State: ~{md_v2(states_map.get(old_task['state']))}~"
                 f" \u21D2 "
-                f"{md_v2(states_map.get(updated_issue['state']))}\n"
+                f"{md_v2(states_map.get(updated_task['state']))}\n"
             )
-        if updated_issue["assignees"] != old_task["assignees"]:
+        if updated_task["assignees"] != old_task["assignees"]:
             replay += f"Assignees:\n"
-        for assignee_id in [item for item in updated_issue["assignees"] if item not in old_task["assignees"]]:
+        for assignee_id in [item for item in updated_task["assignees"] if item not in old_task["assignees"]]:
             replay += f" \u2795 @{md_v2(self.members_map.get(assignee_id))}\n"
         return replay
 
@@ -522,25 +524,92 @@ class PlaneNotifierBot:
         # Constructing replay
         replay = (
                 success_emoji +
-                f' Task created successfully:\n[{md_v2(new_task["name"])}]({md_v2(task_link)})\n'
-                f'UUID: `{md_v2(new_task["id"])}`\n'
-                f'Title: {md_v2(new_task["name"])}\n'
+                f' Task created successfully:\n[{md_v2(new_task.get("name"))}]({md_v2(task_link)})\n'
+                f'UUID: `{md_v2(new_task.get("id"))}`\n'
+                f'Title: {md_v2(new_task.get("name"))}\n'
         )
 
-        description_match = re.match(r'<.*?>(?P<description_text>.*?)</.*?>', new_task['description_html'])
-        if description_match.group('description_text') != "":
-            replay += f"Description: {md_v2(description_match.group('description_text'))}\n"
+        description_text = html_to_markdownV2(new_task.get("description_html"))
+        if description_text is not None and description_text != "":
+            replay += f"Description: {description_text}\n"
         if new_task['start_date']:
-            replay += f"Start: {md_v2(new_task['start_date'])}\n"
+            replay += f"Start: {md_v2(new_task.get('start_date'))}\n"
         if new_task['target_date']:
-            replay += f"Deadline: {md_v2(new_task['target_date'])}\n"
+            replay += f"Deadline: {md_v2(new_task.get('target_date'))}\n"
         if new_task['priority'] != "none":
-            replay += f"Priority: {md_v2(new_task['priority'])}\n"
+            replay += f"Priority: {md_v2(new_task.get('priority'))}\n"
         states_map = self.plane_api.map_states_by_ids(project_id)
-        if states_map.get(new_task['state']):
-            replay += f"State: {md_v2(states_map.get(new_task['state']))}\n"
+        if states_map.get(new_task.get('state')):
+            replay += f"State: {md_v2(states_map.get(new_task.get('state')))}\n"
         if new_task["assignees"]:
             replay += f"Assignees:\n"
-        for assignee_id in new_task["assignees"]:
+        for assignee_id in new_task.get("assignees"):
             replay += f" @{md_v2(self.members_map.get(assignee_id))}\n"
         return replay
+
+    def parse_newtask_message(self, message):
+        patterns = {
+            'title': re.compile(r'Title\s*:\s*(.*?)[\s,]*(?=\s*(?:Description[\s,]*:|Start[\s,]*:|Deadline[\s,]*:|Priority[\s,]*:|State[\s,]*:|@|\Z))', re.DOTALL),
+            'description': re.compile(r'Description\s*:\s*(.*?)[\s,]*(?=\s*(?:Start[\s,]*:|Deadline[\s,]*:|Priority[\s,]*:|State[\s,]*:|@|\Z))', re.DOTALL),
+            'start': re.compile(r'Start\s*:\s*(\S*)[\s,]*'),
+            'deadline': re.compile(r'Deadline\s*:\s*(\S*)[\s,]*'),
+            'priority': re.compile(r'Priority\s*:\s*(.*?)[\s,]*'),
+            'state': re.compile(r'State\s*:\s*(.*?)(?=\n|$|@)[\s,]*'),
+            'assignees': re.compile(r'(?:^|\s)(@\w+)')
+        }
+
+        parsed_data = {}
+
+        for field, pattern in patterns.items():
+            match = pattern.search(message)
+            print(match)
+            if match:
+                if field in ['title', 'description', 'state']:
+                    parsed_data[field] = match.group(1).strip()
+                elif field == 'assignees':
+                    matches = pattern.findall(message)
+                    if matches:
+                        parsed_data[field] = list(set(
+                            name.strip().rstrip(',.!')  # Чистим ник от мусора
+                            for name in matches
+                        ))
+                else:
+                    parsed_data[field] = match.group(1).strip()
+
+        # Валидация данных
+
+        return parsed_data
+
+    def parse_updatetask_message(self, message):
+        patterns = {
+            'id' : re.compile(r'\s*UUID\s*:\s*(\S*)[\s,]*'),
+            'title': re.compile(r'Title\s*:\s*(.*?)[\s,]*(?=\s*(?:Description[\s,]*:|Start[\s,]*:|Deadline[\s,]*:|Priority[\s,]*:|State[\s,]*:|@|\Z))', re.DOTALL),
+            'description': re.compile(r'Description\s*:\s*(.*?)[\s,]*(?=\s*(?:Start[\s,]*:|Deadline[\s,]*:|Priority[\s,]*:|State[\s,]*:|@|\Z))', re.DOTALL),
+            'start': re.compile(r'Start\s*:\s*(\S*)[\s,]*'),
+            'deadline': re.compile(r'Deadline\s*:\s*(\S*)[\s,]*'),
+            'priority': re.compile(r'Priority\s*:\s*(.*?)[\s,]*'),
+            'state': re.compile(r'State\s*:\s*(.*?)(?=\n|$|@)[\s,]*'),
+            'assignees': re.compile(r'(?:^|\s)(@\w+)')
+        }
+
+        parsed_data = {}
+
+        for field, pattern in patterns.items():
+            match = pattern.search(message)
+            print(match)
+            if match:
+                if field in ['title', 'description', 'state']:
+                    parsed_data[field] = match.group(1).strip()
+                elif field == 'assignees':
+                    matches = pattern.findall(message)
+                    if matches:
+                        parsed_data[field] = list(set(
+                            name.strip().rstrip(',.!')  # Чистим ник от мусора
+                            for name in matches
+                        ))
+                else:
+                    parsed_data[field] = match.group(1).strip()
+
+        # Валидация данных
+
+        return parsed_data

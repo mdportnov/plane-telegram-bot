@@ -14,7 +14,7 @@ from telegram.ext import CallbackContext, Application, CommandHandler
 from bot.service.api import PlaneAPI
 from bot.utils.logger_config import setup_logger, logger
 from bot.utils.utils import validate_dates, escape_markdown_v2, fail_emoji, index_to_priority, success_emoji, \
-    html_to_markdownV2
+    html_to_markdownV2, normalize_date
 from bot.utils.utils_tg import get_mentions_list
 
 class PlaneNotifierBot:
@@ -148,9 +148,16 @@ class PlaneNotifierBot:
                 await update.message.reply_text(md_v2(fail_emoji + " Invalid state, check /getstates and try again"), parse_mode="MarkdownV2")
                 return
             # Validate dates
-            if not validate_dates(new_start_date, new_target_date):
+            start_date_fixed = normalize_date(new_start_date)
+            target_date_fixed = normalize_date(new_target_date)
+            if (not start_date_fixed and new_start_date) or (not target_date_fixed and new_target_date):
                 await update.message.reply_text(md_v2(fail_emoji + " Invalid dates, try again"), parse_mode="MarkdownV2")
                 return
+            if not validate_dates(start_date_fixed, target_date_fixed):
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid dates, try again"), parse_mode="MarkdownV2")
+                return
+            new_start_date = start_date_fixed
+            new_target_date = target_date_fixed
             # Validate assignees
             new_assignees = get_mentions_list(update)
             inv_member_map = {v: k for k, v in self.members_map.items()}
@@ -267,10 +274,16 @@ class PlaneNotifierBot:
                 return
 
             # Validate dates
-            if not validate_dates(start_date, target_date):
+            start_date_fixed = normalize_date(start_date)
+            target_date_fixed = normalize_date(target_date)
+            if (not start_date_fixed and start_date) or (not target_date_fixed and target_date):
                 await update.message.reply_text(md_v2(fail_emoji + " Invalid dates, try again"), parse_mode="MarkdownV2")
                 return
-
+            if not validate_dates(start_date_fixed, target_date_fixed):
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid dates, try again"), parse_mode="MarkdownV2")
+                return
+            start_date = start_date_fixed
+            target_date = target_date_fixed
             # Validate assignees
             assignees = get_mentions_list(update)
             inv_member_map = {v: k for k, v in self.members_map.items()}
@@ -562,7 +575,6 @@ class PlaneNotifierBot:
 
         for field, pattern in patterns.items():
             match = pattern.search(message)
-            print(match)
             if match:
                 if field in ['title', 'description', 'state']:
                     parsed_data[field] = match.group(1).strip()
@@ -596,7 +608,6 @@ class PlaneNotifierBot:
 
         for field, pattern in patterns.items():
             match = pattern.search(message)
-            print(match)
             if match:
                 if field in ['title', 'description', 'state']:
                     parsed_data[field] = match.group(1).strip()

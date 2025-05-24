@@ -20,16 +20,26 @@ def load_members_from_file(file_path):
         members = json.load(file)
     return {member["member_id"]: f"{member['telegram_id']}" for member in members}
 
-
 def load_projects_from_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         projects = json.load(file)
     return {project["project_id"]: f"{project['chat_id']}" for project in projects}
 
+def escape_markdown_v2(text: str, chars = r'_*[]()~`>#+-=|{}.!') -> str:
+    for char in chars:
+        text = text.replace(char, '\\' + char)
+    return text
 
-def escape_markdown_v2(text: str, chars="\\_*[\]()~`>#+\-=\|{}.!") -> str:
-    return re.sub(rf"([{chars}])", r"\\\1", text)
-
+def normalize_date(date_str: str | None) -> str | None:
+    if date_str is None :
+        return None
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
+        try:
+            date_obj = datetime.datetime.strptime(date_str, fmt)
+            return date_obj.strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
 
 def validate_dates(start_date, target_date, old_issue=None):
     try:
@@ -52,6 +62,30 @@ def validate_dates(start_date, target_date, old_issue=None):
     except ValueError:
         return False
 
+def html_to_markdownV2(html_text):
+    # Заменяем основные теги
+    replacements = [
+        (r'<b>(.*?)</b>', r'*\1*'),
+        (r'<i>(.*?)</i>', r'_\1_'),
+        (r'<u>(.*?)</u>', r'__\1__'),
+        (r'<s>(.*?)</s>', r'~\1~'),
+        (r'<code>(.*?)</code>', r'`\1`'),
+        (r'<pre>(.*?)</pre>', r'```\1```'),
+        (r'<a href="(.*?)">(.*?)</a>', r'[\2](\1)'),
+        (r'<br\s*/?>', '\n'),
+        (r'<span>(.*?)</span>', r'\1'),  # Удаляем <span>, оставляя содержимое
+        (r'<[^>]+>', ''),  # Удаляем все остальные теги
+    ]
+
+    for pattern, replacement in replacements:
+        html_text = re.sub(pattern, replacement, html_text, flags=re.DOTALL)
+
+    # Экранируем специальные символы MarkdownV2
+    special_chars = r'_*[]()~`>#+-=|{}.!'
+    for char in special_chars:
+        html_text = html_text.replace(char, '\\' + char)
+
+    return html_text.strip()
 
 def load_config_from_file(file_path="config.yaml"):
     with open(file_path, 'r') as stream:

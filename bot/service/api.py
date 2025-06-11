@@ -157,39 +157,68 @@ class PlaneAPI:
 
     def create_issue(self, project_id, issue_data):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/'
-        response = requests.post(url, headers={**self.headers, "Content-Type": "application/json"},
-                                 data=json.dumps(issue_data))
-        logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
-        if response.status_code == 201:
-            logger.info(f"Issue created successfully in project {project_id}.")
-            return response.json()
-        else:
-            logger.error(f"Error creating issue in project {project_id}: {response.status_code}, {response.text}")
-            return None
+        try:
+            response = requests.post(
+                url,
+                headers={**self.headers, "Content-Type": "application/json"},
+                data=json.dumps(issue_data)
+            )
+            logger.debug(f"Creating issue in project {project_id}, response : {response}")
+            if response.status_code == 201:
+                logger.info(f"Issue created successfully in project {project_id}.")
+                return True, response.json()
+            else:
+                error_details = {
+                    "status_code": response.status_code,
+                    "error_message": response.text
+                }
+                logger.error(f"Error creating issue in project {project_id}: {response.status_code}, {response.text}")
+                return False, error_details
+        except requests.exceptions.RequestException as e:
+            return False, {"error_message": str(e)}
 
     def remove_issue(self, project_id, issue_id):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/{issue_id}'
-        response = requests.delete(url, headers={**self.headers, "Content-Type": "application/json"})
-        logger.debug("deleting - "+json.dumps(response.text, indent=4, ensure_ascii=False))
-
-        if response.status_code == 204:
-            logger.info(f"Issue deleted successfully in project {project_id}.")
-            return response
-        else:
-            logger.error(f"Error deleting issue in project {project_id}: {response.status_code}, {response.text}")
-            return None
+        try:
+            response = requests.delete(
+                url,
+                headers={**self.headers, "Content-Type": "application/json"},
+            )
+            logger.debug(f"Removing issue {issue_id} in project {project_id}, response : {response}")
+            if response.status_code == 204:
+                logger.info(f"Issue {issue_id} removed successfully in project {project_id}.")
+                return True, response
+            else:
+                error_details = {
+                    "status_code": response.status_code,
+                    "error_message": response.text
+                }
+                logger.error(f"Error removing issue {issue_id} in project {project_id}: {response.status_code}, {response.text}")
+                return False, error_details
+        except requests.exceptions.RequestException as e:
+            return False, {"error_message": str(e)}
 
     def update_issue(self, project_id, issue_id, update_issue_data):
         url = f'{self.base_api_url}workspaces/{self.workspace_slug}/projects/{project_id}/issues/{issue_id}/'
-        response = requests.patch(url, headers={**self.headers, "Content-Type": "application/json"},
-                                  data=json.dumps(update_issue_data))
-        logger.debug(json.dumps(response.text, indent=4, ensure_ascii=False))
-        if response.status_code == 200:
-            logger.info(f"Issue update successfully in project {project_id}.")
-            return response.json()
-        else:
-            logger.error(f"Error updating issue in project {project_id}: {response.status_code}, {response.text}")
-            return None
+        try:
+            response = requests.patch(
+                url,
+                headers={**self.headers, "Content-Type": "application/json"},
+                data=json.dumps(update_issue_data)
+            )
+            logger.debug(f"Updating issue {issue_id} in project {project_id}, response : {response}")
+            if response.status_code == 200:
+                logger.info(f"Issue {issue_id} updated successfully in project {project_id}.")
+                return True, response.json()
+            else:
+                error_details = {
+                    "status_code": response.status_code,
+                    "error_message": response.text
+                }
+                logger.error(f"Error updating issue {issue_id} in project {project_id}: {response.status_code}, {response.text}")
+                return False, error_details
+        except requests.exceptions.RequestException as e:
+            return False, {"error_message": str(e)}
 
     def map_states_by_ids(self, project_id):
         states = self.get_task_states_ids(project_id)

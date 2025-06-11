@@ -91,17 +91,135 @@ class PlaneNotifierBot:
                 "An error occurred while getting states, try again")
         return
 
+    async def new_task(self, update: Update, context: CallbackContext):
+        try:
+            md_v2 = escape_markdown_v2
+            # Validate the command pattern
+            command_text = update.message.text
+            new_task_pattern = re.compile(rf'^/newtask(?:@{self.bot_name})?[\s,]*')
+            match = new_task_pattern.match(command_text)
+            fail_replay = ( fail_emoji +
+                      " Invalid format. Use:\n"
+                      "/newtask\n"
+                      "Title: <task-title> (max length = 255)\n"
+                      "Description: <task-description>\n"
+                      "Start: <task-start-date> (YYYY-MM-DD)\n"
+                      "Deadline: <task-deadline-date> (YYYY-MM-DD)\n"
+                      "Priority: <(lowest)0->1->2->3->4(highest)>\n"
+                      "State: <state-name> (check with /getstates)\n"
+                      "@assignees_names"
+                      )
+            if match is None :
+                await update.message.reply_text(md_v2(fail_replay), parse_mode="MarkdownV2")
+                return
+            # Parse the command
+            project_id = self.chat_to_project_map.get(str(update.message.chat_id))
+            if project_id is None:
+                replay = fail_emoji + " Project with this chat_id is not specified in projects.json config"
+                await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
+                return
+            test_parse_task = self.parse_newtask_message(message=update.message.text)
+
+            task_name : str = test_parse_task.get("title")
+            task_description = test_parse_task.get("description")
+            start_date = test_parse_task.get("start")
+            target_date = test_parse_task.get("deadline")
+            priority_id = test_parse_task.get("priority")
+            state = test_parse_task.get("state")
+
+            #Validate title
+            if task_name is None or task_name == "" :
+                await update.message.reply_text(md_v2(fail_replay), parse_mode="MarkdownV2")
+                return
+            if len(task_name) >=255 :
+                await update.message.reply_text(md_v2(fail_emoji + f"Max title length is 255 symbols,your title length is {len(task_name)}"), parse_mode="MarkdownV2")
+                return
+             # Validate priority
+            priority = index_to_priority.get(priority_id)
+            if priority is None and priority_id is not None :
+                await update.message.reply_text(md_v2((fail_emoji + " Invalid priority, use one from range : (lowest)0->1->2->3->4(highest)")), parse_mode="MarkdownV2")
+                return
+
+            # Validate state and state_id
+            state_id = {v: k for k, v in self.plane_api.map_states_by_ids(project_id).items()}.get(state)
+            if state is not None and state_id is None:
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid state, check /getstates and try again"), parse_mode="MarkdownV2")
+                return
+
+            # Validate dates
+            start_date_fixed = normalize_date(start_date)
+            target_date_fixed = normalize_date(target_date)
+            if (not start_date_fixed and start_date) or (not target_date_fixed and target_date):
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid dates, try again"), parse_mode="MarkdownV2")
+                return
+            if not validate_dates(start_date_fixed, target_date_fixed):
+                await update.message.reply_text(md_v2(fail_emoji + " Invalid dates, try again"), parse_mode="MarkdownV2")
+                return
+            start_date = start_date_fixed
+            target_date = target_date_fixed
+            # Validate assignees
+            assignees = get_mentions_list(update)
+            inv_member_map = {v: k for k, v in self.members_map.items()}
+            assignees_ids = list()
+            invalid_names_list = list()
+            for assignee_name in assignees:
+                if inv_member_map.get(assignee_name):
+                    assignees_ids.append(inv_member_map.get(assignee_name))
+                else:
+                    invalid_names_list.append(assignee_name)
+            if invalid_names_list and assignees:
+                replay = fail_emoji + f" Can't find assignees ids :"
+                for name in invalid_names_list:
+                    replay += f"\n @{name}"
+                await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
+                return
+
+            # Prepare issue data
+            task_data = {
+                "name": task_name,
+                "description_html": f"<body>{task_description}</body>" if task_description is not None else None,
+                "start_date": start_date,
+                "target_date": target_date,
+                "priority": priority_id,
+                "state": state_id,
+                "assignees": assignees_ids
+            }
+
+            # Clean empty values
+            for key, value in list(task_data.items()):
+                if value is None:
+                    task_data.pop(key)
+
+            # Create the issue via Plane API
+            success , result = self.plane_api.create_issue(project_id, task_data)
+            if success:
+                replay = self.construct_new_replay(new_task=result, project_id=project_id)
+                await update.message.reply_text(replay, parse_mode="MarkdownV2")
+            else:
+                error_reply = fail_emoji + " Failed to create the task, try again"
+                if self.plane_api.mode.upper() == "DEBUG":
+                    error_reply += f"\nDetails : ${result}"
+                await update.message.reply_text(md_v2(error_reply), parse_mode="MarkdownV2")
+        except Exception as e:
+            logger.error(f"Error handling /newtask command: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()} ")
+            error_reply = fail_emoji + " An error occurred while creating the task, check your input and try again"
+            if self.plane_api.mode.upper() == "DEBUG":
+                error_reply += f"\nError : {e} \n Error details :{traceback.format_exc()}"
+            await update.message.reply_text(escape_markdown_v2(error_reply), parse_mode="MarkdownV2")
+
     async def update_task(self, update: Update, context: CallbackContext):
         try:
             md_v2 = escape_markdown_v2
             # Validate the command
             command_text = update.message.text
-            update_task_pattern = re.compile(re.compile(rf'^/updatetask(?:@{self.bot_name})?[\s,]*'))
+            update_task_pattern = re.compile(re.compile(rf'^/updatetask(?:@{self.bot_name})?[\s,]*'
+                r'\nUUID\s*:?\s*(?P<id>\S{8}-\S{4}-\S{4}-\S{4}-\S{12})[\s,]*'))
+
             match = update_task_pattern.match(command_text)
             fail_replay = ( fail_emoji +
                     " Invalid format. Use:\n"
                     "/updatetask\n"
-                    "UUID: <task-UUID>\n"
+                    "UUID: <task-UUID> (max length = 255)\n"
                     "Title: <task-title>\n"
                     "Description: <task-description>\n"
                     "Start: <task-start-date> (YYYY-MM-DD)\n"
@@ -132,11 +250,14 @@ class PlaneNotifierBot:
             if task_id is None or uuid_pattern.fullmatch(task_id) is None :
                 replay = fail_emoji + " Task id's incorrect"
                 await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
-                return 
+                return
             if new_task_title == "":
                 replay = fail_emoji + " Task title cant be empty"
                 await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
-                return 
+                return
+            if new_task_title is not None and len(new_task_title) >=255 :
+                await update.message.reply_text(md_v2(fail_emoji + f"Max title length is 255 symbols,your title length is {len(new_task_title)}"), parse_mode="MarkdownV2")
+                return
             # Validate priority
             new_priority = index_to_priority.get(new_priority_id)
             if new_priority is None and new_priority_id is not None :
@@ -205,131 +326,18 @@ class PlaneNotifierBot:
                     new_task_data.pop(key)
 
             # Update the issue via Plane API
-            updated_task = self.plane_api.update_issue(project_id, task_id, new_task_data)
-            if updated_task:
-                replay = self.construct_update_replay(updated_task=updated_task, old_task=old_task, project_id=project_id)
+            success,result = self.plane_api.update_issue(project_id, task_id, new_task_data)
+            if success:
+                replay = self.construct_update_replay(updated_task=result, old_task=old_task, project_id=project_id)
                 await update.message.reply_text(replay, parse_mode="MarkdownV2")
             else:
                 error_reply = fail_emoji + " Failed to update the task, try again"
                 if self.plane_api.mode.upper() == "DEBUG":
-                    error_reply += f"\nApi response : ${updated_task}"
+                    error_reply += f"\nDetails: ${result}"
                 await update.message.reply_text(md_v2(error_reply), parse_mode="MarkdownV2")
         except Exception as e:
             logger.error(f"Error handling /updatetask command: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()}")
             error_reply = fail_emoji + " An error occurred while updating the task. Please check your input and try again"
-            if self.plane_api.mode.upper() == "DEBUG":
-                error_reply += f"\nError : {e} \n Error details :{traceback.format_exc()}"
-            await update.message.reply_text(escape_markdown_v2(error_reply), parse_mode="MarkdownV2")
-
-    async def new_task(self, update: Update, context: CallbackContext):
-        try:
-            md_v2 = escape_markdown_v2
-            # Validate the command pattern
-            command_text = update.message.text
-            new_task_pattern = re.compile(rf'^/newtask(?:@{self.bot_name})?[\s,]*')
-            match = new_task_pattern.match(command_text)
-            fail_replay = ( fail_emoji +
-                      " Invalid format. Use:\n"
-                      "/newtask\n"
-                      "Title: <task-title>\n"
-                      "Description: <task-description>\n"
-                      "Start: <task-start-date> (YYYY-MM-DD)\n"
-                      "Deadline: <task-deadline-date> (YYYY-MM-DD)\n"
-                      "Priority: <(lowest)0->1->2->3->4(highest)>\n"
-                      "State: <state-name> (check with /getstates)\n"
-                      "@assignees_names"
-                      )
-            if match is None :
-                await update.message.reply_text(md_v2(fail_replay), parse_mode="MarkdownV2")
-                return
-            # Parse the command
-            project_id = self.chat_to_project_map.get(str(update.message.chat_id))
-            if project_id is None:
-                replay = fail_emoji + " Project with this chat_id is not specified in projects.json config"
-                await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
-                return
-            test_parse_task = self.parse_newtask_message(message=update.message.text)
-
-            task_name = test_parse_task.get("title")
-            task_description = test_parse_task.get("description")
-            start_date = test_parse_task.get("start")
-            target_date = test_parse_task.get("deadline")
-            priority_id = test_parse_task.get("priority")
-            state = test_parse_task.get("state")
-
-            #Validate title
-            if task_name is None or task_name == "" :
-                await update.message.reply_text(md_v2(fail_replay), parse_mode="MarkdownV2")
-                return 
-            # Validate priority
-            priority = index_to_priority.get(priority_id)
-            if priority is None and priority_id is not None :
-                await update.message.reply_text(md_v2((fail_emoji + " Invalid priority, use one from range : (lowest)0->1->2->3->4(highest)")), parse_mode="MarkdownV2")
-                return
-
-            # Validate state and state_id
-            state_id = {v: k for k, v in self.plane_api.map_states_by_ids(project_id).items()}.get(state)
-            if state is not None and state_id is None:
-                await update.message.reply_text(md_v2(fail_emoji + " Invalid state, check /getstates and try again"), parse_mode="MarkdownV2")
-                return
-
-            # Validate dates
-            start_date_fixed = normalize_date(start_date)
-            target_date_fixed = normalize_date(target_date)
-            if (not start_date_fixed and start_date) or (not target_date_fixed and target_date):
-                await update.message.reply_text(md_v2(fail_emoji + " Invalid dates, try again"), parse_mode="MarkdownV2")
-                return
-            if not validate_dates(start_date_fixed, target_date_fixed):
-                await update.message.reply_text(md_v2(fail_emoji + " Invalid dates, try again"), parse_mode="MarkdownV2")
-                return
-            start_date = start_date_fixed
-            target_date = target_date_fixed
-            # Validate assignees
-            assignees = get_mentions_list(update)
-            inv_member_map = {v: k for k, v in self.members_map.items()}
-            assignees_ids = list()
-            invalid_names_list = list()
-            for assignee_name in assignees:
-                if inv_member_map.get(assignee_name):
-                    assignees_ids.append(inv_member_map.get(assignee_name))
-                else:
-                    invalid_names_list.append(assignee_name)
-            if invalid_names_list and assignees:
-                replay = fail_emoji + f" Can't find assignees ids :"
-                for name in invalid_names_list:
-                    replay += f"\n @{name}"
-                await update.message.reply_text(md_v2(replay), parse_mode="MarkdownV2")
-                return
-
-            # Prepare issue data
-            task_data = {
-                "name": task_name,
-                "description_html": f"<body>{task_description}</body>" if task_description is not None else None,
-                "start_date": start_date,
-                "target_date": target_date,
-                "priority": priority_id,
-                "state": state_id,
-                "assignees": assignees_ids
-            }
-
-            # Clean empty values
-            for key, value in list(task_data.items()):
-                if value is None:
-                    task_data.pop(key)
-
-            # Create the issue via Plane API
-            result = self.plane_api.create_issue(project_id, task_data)
-            if result:
-                replay = self.construct_new_replay(new_task=result, project_id=project_id)
-                await update.message.reply_text(replay, parse_mode="MarkdownV2")
-            else:
-                error_reply = fail_emoji + " Failed to create the task, try again"
-                if self.plane_api.mode.upper() == "DEBUG":
-                    error_reply += f"\nApi response : ${result}"
-                await update.message.reply_text(md_v2(error_reply), parse_mode="MarkdownV2")
-        except Exception as e:
-            logger.error(f"Error handling /newtask command: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()} ")
-            error_reply = fail_emoji + " An error occurred while creating the task, check your input and try again"
             if self.plane_api.mode.upper() == "DEBUG":
                 error_reply += f"\nError : {e} \n Error details :{traceback.format_exc()}"
             await update.message.reply_text(escape_markdown_v2(error_reply), parse_mode="MarkdownV2")
@@ -367,15 +375,14 @@ class PlaneNotifierBot:
                 await update.message.reply_text(replay, parse_mode="MarkdownV2")
                 return
             # Delete the issue via Plane API
-            result = self.plane_api.remove_issue(project_id, task_id)
-            print(result)
-            if result :
+            success , result = self.plane_api.remove_issue(project_id, task_id)
+            if success :
                 replay = success_emoji + " Task removed successfully"
                 await update.message.reply_text(replay, parse_mode="MarkdownV2")
             else:
                 error_reply = fail_emoji + " Failed to remove task, try again"
                 if self.plane_api.mode.upper() == "DEBUG":
-                    error_reply += f"\nApi response : ${result}"
+                    error_reply += f"\nDetails : ${result}"
                 await update.message.reply_text(error_reply)
         except Exception as e:
             logger.error(f"Error handling /removetask command: {e} \nCause : {e.__cause__} \n Traceback:{traceback.format_exc()} ")

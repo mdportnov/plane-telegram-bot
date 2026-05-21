@@ -77,6 +77,7 @@ jobs:
           mkdir -p ~/plane-bot && \
           docker run -d \
             --name ${{ github.event.inputs.app_name }} \
+            --add-host=api.telegram.org:149.154.167.220 \
             -v ~/plane-bot/.env:/app/.env \
             -v ~/plane-bot/config.yaml:/app/config.yaml \
             -v ~/plane-bot/members.json:/app/members.json \

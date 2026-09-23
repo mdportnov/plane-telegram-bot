@@ -1,0 +1,8 @@
+report_states_list:
+  - Todo
+  - In Progress
+  - In Review
+cron_expression: "0 9 * * mon-fri"
+cron_timezone: "UTC"
+projects_file_path: "projects.json"
+members_file_path: "members.json"

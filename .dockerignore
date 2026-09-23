@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.env.*
+.venv
+.idea
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+members.json
+projects.json
+projects__.json
+config.yaml
+tests

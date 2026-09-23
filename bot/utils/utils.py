@@ -1,93 +1,125 @@
+import datetime
 import json
 import re
-import datetime
-import yaml
+from pathlib import Path
+from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-# Priority map
-index_to_priority = {
-    '0': "none",
-    '1': "low",
-    '2': "medium",
-    '3': "high",
-    '4': "urgent",
-}
-success_emoji = "\u2705"
-fail_emoji = "\u274c"
+import yaml
+from apscheduler.triggers.cron import CronTrigger
+
+index_to_priority = {"0": "none", "1": "low", "2": "medium", "3": "high", "4": "urgent"}
+
+
+def validate_uuid(value, label="UUID"):
+    try:
+        return str(UUID(str(value)))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError(f"{label} must be a UUID, not a name or short identifier.") from None
+
+
+def load_json_list(file_path):
+    try:
+        data = json.loads(Path(file_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise ValueError(
+            f"Cannot read {file_path}. Create a valid JSON file using the example in README.md."
+        ) from None
+    if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+        raise ValueError(f"{file_path} must contain a JSON array of objects.")
+    return data
 
 
 def load_members_from_file(file_path):
-    with open(file_path, 'r', encoding='utf-8') as file:
-        members = json.load(file)
-    return {member["member_id"]: f"{member['telegram_id']}" for member in members}
+    if file_path is None:
+        return {}
+    result = {}
+    usernames = set()
+    for member in load_json_list(file_path):
+        member_id = validate_uuid(member.get("member_id"), f"{file_path}: member_id")
+        username = str(member.get("telegram_id", "")).strip().lstrip("@")
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{4,31}", username):
+            raise ValueError(f"{file_path}: telegram_id must be a Telegram username, with or without @.")
+        if member_id in result or username.lower() in usernames:
+            raise ValueError(f"{file_path}: duplicate member_id or Telegram username.")
+        result[member_id] = username
+        usernames.add(username.lower())
+    return result
+
 
 def load_projects_from_file(file_path):
-    with open(file_path, 'r', encoding='utf-8') as file:
-        projects = json.load(file)
-    return {project["project_id"]: f"{project['chat_id']}" for project in projects}
+    result = {}
+    chats = set()
+    for project in load_json_list(file_path):
+        project_id = validate_uuid(project.get("project_id"), f"{file_path}: project_id")
+        chat_id = str(project.get("chat_id", ""))
+        if not re.fullmatch(r"-?[1-9][0-9]*", chat_id):
+            raise ValueError(f"{file_path}: chat_id must be a numeric Telegram chat ID. Use /chatid.")
+        if project_id in result or chat_id in chats:
+            raise ValueError(f"{file_path}: use one unique project per unique chat.")
+        result[project_id] = chat_id
+        chats.add(chat_id)
+    return result
 
-def escape_markdown_v2(text: str, chars = r'_*[]()~`>#+-=|{}.!') -> str:
-    for char in chars:
-        text = text.replace(char, '\\' + char)
-    return text
 
-def normalize_date(date_str: str | None) -> str | None:
-    if date_str is None :
-        return None
-    for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
+def normalize_date(value):
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y"):
         try:
-            date_obj = datetime.datetime.strptime(date_str, fmt)
-            return date_obj.strftime("%Y-%m-%d")
-        except ValueError:
+            return datetime.datetime.strptime(value, fmt).date().isoformat()
+        except (ValueError, TypeError):
             continue
-    return None
+    raise ValueError("Invalid date. Use YYYY-MM-DD or DD-MM-YYYY.")
+
 
 def validate_dates(start_date, target_date, old_issue=None):
+    old_issue = old_issue or {}
+    start = start_date if start_date is not None else old_issue.get("start_date")
+    end = target_date if target_date is not None else old_issue.get("target_date")
     try:
-        if start_date:
-            parsed_start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
-        if target_date:
-            parsed_target_date = datetime.datetime.strptime(target_date, '%Y-%m-%d')
-        if start_date and target_date and parsed_target_date < parsed_start_date:
-            return False
-        if old_issue:
-            old_start_date = datetime.datetime.strptime(old_issue["start_date"], '%Y-%m-%d') if old_issue[
-                "start_date"] else None
-            old_target_date = datetime.datetime.strptime(old_issue["target_date"], '%Y-%m-%d') if old_issue[
-                "target_date"] else None
-            if start_date and old_target_date and parsed_start_date > old_target_date:
-                return False
-            if target_date and old_start_date and parsed_target_date < old_start_date:
-                return False
-        return True
-    except ValueError:
+        start = datetime.date.fromisoformat(start) if start else None
+        end = datetime.date.fromisoformat(end) if end else None
+        return not (start and end and start > end)
+    except (ValueError, TypeError):
         return False
 
-def html_to_markdownV2(html_text):
-    # Заменяем основные теги
-    replacements = [
-        (r'<b>(.*?)</b>', r'*\1*'),
-        (r'<i>(.*?)</i>', r'_\1_'),
-        (r'<u>(.*?)</u>', r'__\1__'),
-        (r'<s>(.*?)</s>', r'~\1~'),
-        (r'<code>(.*?)</code>', r'`\1`'),
-        (r'<pre>(.*?)</pre>', r'```\1```'),
-        (r'<a href="(.*?)">(.*?)</a>', r'[\2](\1)'),
-        (r'<br\s*/?>', '\n'),
-        (r'<span>(.*?)</span>', r'\1'),  # Удаляем <span>, оставляя содержимое
-        (r'<[^>]+>', ''),  # Удаляем все остальные теги
-    ]
-
-    for pattern, replacement in replacements:
-        html_text = re.sub(pattern, replacement, html_text, flags=re.DOTALL)
-
-    # Экранируем специальные символы MarkdownV2
-    special_chars = r'_*[]()~`>#+-=|{}.!'
-    for char in special_chars:
-        html_text = html_text.replace(char, '\\' + char)
-
-    return html_text.strip()
 
 def load_config_from_file(file_path="config.yaml"):
-    with open(file_path, 'r') as stream:
-        data_loaded = yaml.safe_load(stream)
-        return data_loaded
+    path = Path(file_path)
+    try:
+        config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        raise ValueError(
+            f"Cannot read {file_path}. Copy config.example.yaml to config.yaml and edit it."
+        ) from None
+    if not isinstance(config, dict):
+        raise ValueError(f"{file_path} must contain a YAML mapping.")
+    config = {
+        "report_states_list": ["Todo", "In Progress", "In Review"],
+        "cron_expression": "0 9 * * mon-fri",
+        "cron_timezone": "UTC",
+        "projects_file_path": "projects.json",
+        "members_file_path": None,
+        **config,
+    }
+    states = config["report_states_list"]
+    if (
+        not isinstance(states, list)
+        or not states
+        or any(not isinstance(s, str) or not s.strip() for s in states)
+    ):
+        raise ValueError("report_states_list must be a non-empty list of state names.")
+    try:
+        ZoneInfo(config["cron_timezone"])
+        CronTrigger.from_crontab(config["cron_expression"], timezone=config["cron_timezone"])
+    except (ValueError, TypeError, KeyError, AttributeError, ZoneInfoNotFoundError):
+        raise ValueError(
+            "Invalid cron_expression or cron_timezone. Use a five-field cron and an IANA timezone."
+        ) from None
+    for key in ("projects_file_path", "members_file_path"):
+        value = config[key]
+        if value is None and key == "members_file_path":
+            continue
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{key} must be a file path.")
+        config[key] = str(path.parent / value)
+    return config

@@ -1,19 +1,10 @@
 import logging
-import sys
+
+logger = logging.getLogger("plane_bot")
 
 
-def setup_logger(name='project', level=logging.INFO):
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(level)
-
-    logger.handlers.clear()
-    logger.addHandler(console_handler)
-    return logger
-logger = setup_logger(level=logging.INFO)
+def configure_logging(mode="INFO"):
+    level = logging.DEBUG if mode.upper() == "DEBUG" else logging.INFO
+    logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    for name in ("httpx", "httpcore", "telegram", "urllib3"):
+        logging.getLogger(name).setLevel(logging.WARNING)

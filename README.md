@@ -115,7 +115,7 @@ Use the exact state names returned by this command in **config.yaml**:
     projects_file_path: "projects.json"
     members_file_path: "members.json"
 
-Replace the example state names with your project's names. States vary between projects. The schedule above runs at 09:00 Monday–Friday in `cron_timezone`. Use an IANA timezone such as `Europe/Berlin` or `Africa/Johannesburg`. For a quick schedule test, `*/2 * * * *` means every two minutes.
+Replace the example state names with your project's names. States vary between projects. The schedule above runs at 09:00 Monday–Friday in `cron_timezone`. Use an IANA timezone such as `Europe/Berlin` or `Africa/Johannesburg`. For a quick schedule test, `*/2 * * * *` means every two minutes. To turn scheduled reports off, set `cron_expression: null`; `/getreport` still works.
 
 Scheduled reports skip projects with no tasks in the selected states. `/getreport` also displays empty states. State names are matched exactly; at runtime each project reports its matching states, while the setup check flags any configured name missing from a project.
 

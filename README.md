@@ -181,6 +181,8 @@ Complete setup first so `.env`, `config.yaml`, `projects.json` and `members.json
 
 Stop it with `docker compose down`. Config and mapping files are mounted read-only. Credentials and local mappings are excluded from the image. After changing `.env`, recreate the container with `docker compose up -d --force-recreate`; for config/mapping changes, restart with `docker compose restart bot`.
 
+CI publishes every tested commit on `master` as `ghcr.io/vyhuholl/plane-telegram-bot:<commit sha>`, for running the bot without building it.
+
 ## API compatibility and upgrades
 
 The bot uses [Plane's work-items API](https://developers.plane.so/api-reference/issue/list-issues), `X-API-Key` authentication and cursor pagination. Member discovery uses the [workspace members](https://developers.plane.so/api-reference/members/get-workspace-members) and [project members](https://developers.plane.so/api-reference/members/get-project-members) endpoints. Assignees and named priorities follow the [create work item schema](https://developers.plane.so/api-reference/issue/add-issue).

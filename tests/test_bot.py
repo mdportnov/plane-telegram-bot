@@ -134,3 +134,11 @@ async def test_scheduler_uses_application_lifecycle_and_configured_timezone():
     assert str(job.trigger.timezone) == "Africa/Johannesburg"
     assert job.max_instances == 1
     await instance._stop_scheduler(instance.application)
+
+
+async def test_null_cron_expression_starts_no_scheduler():
+    instance = PlaneNotifierBot("123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
+    instance.project_to_chat_map = {PROJECT: "-123"}
+    instance.config = {"cron_expression": None, "cron_timezone": "UTC"}
+    await instance._start_scheduler(instance.application)
+    assert instance.scheduler is None

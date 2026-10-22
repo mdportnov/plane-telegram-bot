@@ -110,7 +110,8 @@ def load_config_from_file(file_path="config.yaml"):
         raise ValueError("report_states_list must be a non-empty list of state names.")
     try:
         ZoneInfo(config["cron_timezone"])
-        CronTrigger.from_crontab(config["cron_expression"], timezone=config["cron_timezone"])
+        if config["cron_expression"] is not None:
+            CronTrigger.from_crontab(config["cron_expression"], timezone=config["cron_timezone"])
     except (ValueError, TypeError, KeyError, AttributeError, ZoneInfoNotFoundError):
         raise ValueError(
             "Invalid cron_expression or cron_timezone. Use a five-field cron and an IANA timezone."

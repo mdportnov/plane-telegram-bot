@@ -166,6 +166,9 @@ class PlaneNotifierBot:
         if not self.project_to_chat_map:
             logger.info("Setup mode: send /chatid to the bot in your target Telegram chat.")
             return
+        if self.config.get("cron_expression") is None:
+            logger.info("Bot started; scheduled reports are off (cron_expression: null).")
+            return
         self.scheduler = AsyncIOScheduler()
         self.scheduler.add_job(
             self.send_report_to_chats,

@@ -1,4 +1,4 @@
-name: Tests
+name: CI
 on:
   push:
   pull_request:
@@ -15,3 +15,29 @@ jobs:
       - run: python -m ruff format --check .
       - run: python -m pytest
       - run: docker build -t plane-telegram-bot:test .
+
+  # Every tested commit on master becomes ghcr.io/<owner>/<repo>:<sha>. No moving
+  # tag: whoever runs the bot pins the commit it wants.
+  publish:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to the GitHub Container Registry
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      # The source label links the package to this repository before its first
+      # push, so it takes the repository's access rules.
+      - name: Build and push the image
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}"
+          docker build \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            -t "$image" .
+          docker push "$image"

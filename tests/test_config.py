@@ -58,10 +58,17 @@ def test_config_defaults_and_relative_paths(tmp_path):
     assert load_members_from_file(config["members_file_path"]) == {}
 
 
+def test_null_cron_expression_turns_scheduled_reports_off(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("cron_expression: null\n")
+    assert load_config_from_file(path)["cron_expression"] is None
+
+
 @pytest.mark.parametrize(
     "content",
     [
         "cron_timezone: Missing/Zone",
+        "cron_expression: null\ncron_timezone: Missing/Zone",
         "cron_expression: broken",
         "report_states_list: Todo",
         "report_states_list: []",
